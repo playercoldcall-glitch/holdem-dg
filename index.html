@@ -1,0 +1,1490 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DG 홀덤 모임</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <style>
+    body { background: #0f172a; color: #f1f5f9; font-family: 'Segoe UI', system-ui, sans-serif; }
+    .card { background: #1e293b; border-radius: 12px; border: 1px solid #334155; }
+    .btn-primary { background: #16a34a; color: white; padding: 8px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: background 0.2s; display: inline-block; }
+    .btn-primary:hover { background: #15803d; }
+    .btn-secondary { background: #334155; color: #e2e8f0; padding: 8px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; display: inline-block; }
+    .btn-danger { background: #dc2626; color: white; padding: 8px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; display: inline-block; }
+    .btn-sm { padding: 4px 12px; font-size: 13px; }
+    .input { background: #0f172a; border: 1px solid #475569; color: white; padding: 8px 12px; border-radius: 8px; width: 100%; }
+    .input:focus { outline: none; border-color: #16a34a; }
+    select.input option { background: #1e293b; }
+    .badge-open { background: #16a34a22; color: #4ade80; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+    .badge-active { background: #d9770622; color: #fb923c; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+    .badge-closed { background: #47556933; color: #94a3b8; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+    .nav-link { color: #94a3b8; padding: 9px 12px; border-radius: 8px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 8px; text-decoration: none; font-size: 14px; }
+    .nav-link:hover { background: #0f172a; color: #e2e8f0; }
+    .nav-link.active { background: #0f172a; color: #4ade80; font-weight: 600; }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .modal { background: #1e293b; border-radius: 16px; padding: 28px; max-width: 480px; width: 92%; border: 1px solid #334155; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #0f172a; padding: 10px 16px; text-align: left; font-size: 12px; color: #64748b; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+    td { padding: 12px 16px; border-bottom: 1px solid #ffffff08; font-size: 14px; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #ffffff05; }
+    .sidebar { background: #1e293b; min-height: 100vh; width: 220px; flex-shrink: 0; padding: 24px 12px; border-right: 1px solid #334155; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+    .stat-card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="modal-root"></div>
+
+  <script>
+  // ============================
+  // UTILS
+  // ============================
+  function uuid() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+  }
+  function fmtMoney(n) { return Number(n || 0).toLocaleString('ko-KR') + '원'; }
+  function fmtDate(d) { if (!d) return '-'; return String(d).slice(0, 10); }
+  function fmtDT(d) {
+    if (!d) return '-';
+    const dt = new Date(d);
+    return `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+  }
+  function statusBadge(s) {
+    return { open: '<span class="badge-open">모집중</span>', active: '<span class="badge-active">진행중</span>', closed: '<span class="badge-closed">완료</span>' }[s] || '';
+  }
+  function msg(id, type, text) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.className = type === 'ok'
+      ? 'bg-green-900/40 text-green-400 text-sm p-3 rounded-lg mb-3'
+      : 'bg-red-900/40 text-red-400 text-sm p-3 rounded-lg mb-3';
+    el.textContent = text;
+  }
+
+  // ============================
+  // DATABASE (Supabase + memCache)
+  // ============================
+  const SUPABASE_URL = 'https://retpkjjylvnxowsfqeeg.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_A3tWODwyIPX7zad8IlKqwQ_Ykmy6_Mx';
+  const _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  const _mem = {};
+  const DB = {
+    get(k) { return (k in _mem) ? _mem[k] : null; },
+    set(k, v) {
+      _mem[k] = v;
+      _sb.from('app_data')
+        .upsert({ key: k, value: v, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+        .then(({ error }) => { if (error) console.error('DB.set 오류:', k, error); });
+    }
+  };
+
+  function initDB() {
+    if (DB.get('init_v4')) return;
+    // clear old demo data
+    ['users','games','entries','awards','seedTxns','init','init_v2','init_v3'].forEach(k=>localStorage.removeItem('dg2_'+k));
+
+    // ── 플레이어 ID ──
+    const ai='u-admin',
+      uKimik='u-kimik', uBobae='u-bobae', uJinuk='u-jinuk', uYerim='u-yerim',
+      uJiwon='u-jiwon', uIntae='u-intae', uSomang='u-somang', uJaeik='u-jaeik',
+      uEunchae='u-eunchae', uJaehyun='u-jaehyun', uDohyun='u-dohyun',
+      uJihyun='u-jihyun', uHanyong='u-hanyong', uSanghun='u-sanghun',
+      uJongmin='u-jongmin', uJeonguk='u-jeonguk', uSion='u-sion';
+
+    DB.set('users',[
+      {id:ai,      username:'admin',   name:'관리자',role:'admin',  password:'admin123',seedBalance:0,    createdAt:'2025-12-01'},
+      {id:uKimik,  username:'kimik',   name:'김익',  role:'player', password:'1234',    seedBalance:10000, dealer:2.4,  createdAt:'2025-12-13'},
+      {id:uBobae,  username:'bobae',   name:'보배',  role:'player', password:'1234',    seedBalance:50000, dealer:0,    createdAt:'2025-12-13'},
+      {id:uJinuk,  username:'jinuk',   name:'진욱',  role:'player', password:'1234',    seedBalance:27000, dealer:0,    createdAt:'2025-12-13'},
+      {id:uYerim,  username:'yerim',   name:'예림',  role:'player', password:'1234',    seedBalance:16000, dealer:0,    createdAt:'2025-12-13'},
+      {id:uJiwon,  username:'jiwon',   name:'지원',  role:'player', password:'1234',    seedBalance:27000, dealer:11.5, createdAt:'2025-12-13'},
+      {id:uIntae,  username:'intae',   name:'인태',  role:'player', password:'1234',    seedBalance:15000, dealer:0,    createdAt:'2025-12-13'},
+      {id:uSomang, username:'somang',  name:'소망',  role:'player', password:'1234',    seedBalance:19000, dealer:0,    createdAt:'2025-12-20'},
+      {id:uJaeik,  username:'jaeik',   name:'재익',  role:'player', password:'1234',    seedBalance:0,     dealer:0,    createdAt:'2026-01-17'},
+      {id:uEunchae,username:'eunchae', name:'은채',  role:'player', password:'1234',    seedBalance:15000, dealer:0,    createdAt:'2026-01-17'},
+      {id:uJaehyun,username:'jaehyun', name:'재현',  role:'player', password:'1234',    seedBalance:10000, dealer:0,    createdAt:'2026-01-17'},
+      {id:uDohyun, username:'dohyun',  name:'도현',  role:'player', password:'1234',    seedBalance:10000, dealer:0,    createdAt:'2025-12-13'},
+      {id:uJihyun, username:'jihyun',  name:'지현',  role:'player', password:'1234',    seedBalance:7000,  dealer:0,    createdAt:'2025-12-13'},
+      {id:uHanyong,username:'hanyong', name:'한용',  role:'player', password:'1234',    seedBalance:0,     dealer:0,    createdAt:'2025-12-13'},
+      {id:uSanghun,username:'sanghun', name:'상훈',  role:'player', password:'1234',    seedBalance:0,     dealer:0,    createdAt:'2025-12-20'},
+      {id:uJongmin,username:'jongmin', name:'종민',  role:'player', password:'1234',    seedBalance:0,     dealer:0,    createdAt:'2025-12-13'},
+      {id:uJeonguk,username:'jeonguk', name:'정욱',  role:'player', password:'1234',    seedBalance:0,     dealer:0,    createdAt:'2026-02-14'},
+      {id:uSion,   username:'sion',    name:'시온',  role:'player', password:'1234',    seedBalance:0,     dealer:0,    createdAt:'2026-03-14'},
+    ]);
+
+    // ── 게임 ID ──
+    const gJ01='g-j01',gJ02='g-j02',gJ03='g-j03',gJ04='g-j04',gJ05='g-j05',
+          gJ06='g-j06',gJ07='g-j07',gJ08='g-j08',gJ09='g-j09',gJ10='g-j10',
+          gJ11='g-j11',gJ12='g-j12',gJ13='g-j13',gJ14='g-j14',gJ15='g-j15',
+          gJ16='g-j16',gJ17='g-j17',
+          gK01='g-k01',gK02='g-k02',gK03='g-k03',gK04='g-k04',
+          gP01='g-p01';
+
+    DB.set('games',[
+      {id:gJ01,date:'2025-12-13',type:'정기',    sessionNo:1, duration:4,  buyInAmount:3000,maxEntries:30,awardType:'chop',status:'closed',createdAt:'2025-12-13'},
+      {id:gJ02,date:'2025-12-13',type:'정기',    sessionNo:2, duration:4,  buyInAmount:3000,maxEntries:30,awardType:'chop',status:'closed',createdAt:'2025-12-13'},
+      {id:gJ03,date:'2025-12-13',type:'정기',    sessionNo:3, duration:4,  buyInAmount:3000,maxEntries:30,awardType:'chop',status:'closed',createdAt:'2025-12-13'},
+      {id:gJ04,date:'2025-12-20',type:'정기',    sessionNo:4, duration:4,  buyInAmount:3000,maxEntries:30,awardType:'chop',status:'closed',createdAt:'2025-12-20'},
+      {id:gJ05,date:'2025-12-20',type:'정기',    sessionNo:5, duration:4,  buyInAmount:3000,maxEntries:30,awardType:'chop',status:'closed',createdAt:'2025-12-20'},
+      {id:gJ06,date:'2026-01-17',type:'정기',    sessionNo:6, duration:4,  buyInAmount:3000,maxEntries:30,awardType:'chop',status:'closed',createdAt:'2026-01-17'},
+      {id:gJ07,date:'2026-01-17',type:'정기',    sessionNo:7, duration:4,  buyInAmount:3000,maxEntries:30,awardType:'chop',status:'closed',createdAt:'2026-01-17'},
+      {id:gJ08,date:'2026-01-17',type:'정기',    sessionNo:8, duration:4,  buyInAmount:3000,maxEntries:30,awardType:'chop',status:'closed',createdAt:'2026-01-17'},
+      {id:gJ09,date:'2026-01-17',type:'정기',    sessionNo:9, duration:4,  buyInAmount:3000,maxEntries:30,awardType:'chop',status:'closed',createdAt:'2026-01-17'},
+      {id:gJ10,date:'2026-01-31',type:'정기',    sessionNo:10,duration:8,  buyInAmount:3000,maxEntries:30,awardType:'rank',status:'closed',createdAt:'2026-01-31'},
+      {id:gJ11,date:'2026-01-31',type:'정기',    sessionNo:11,duration:4,  buyInAmount:3000,maxEntries:30,awardType:'rank',status:'closed',createdAt:'2026-01-31'},
+      {id:gJ12,date:'2026-02-14',type:'정기',    sessionNo:12,duration:6,  buyInAmount:3000,maxEntries:30,awardType:'rank',status:'closed',createdAt:'2026-02-14'},
+      {id:gJ13,date:'2026-02-14',type:'정기',    sessionNo:13,duration:5,  buyInAmount:3000,maxEntries:30,awardType:'rank',status:'closed',createdAt:'2026-02-14'},
+      {id:gJ14,date:'2026-02-18',type:'정기',    sessionNo:14,duration:7,  buyInAmount:3000,maxEntries:30,awardType:'rank',status:'closed',createdAt:'2026-02-18'},
+      {id:gJ15,date:'2026-02-28',type:'정기',    sessionNo:15,duration:4,  buyInAmount:3000,maxEntries:30,awardType:'rank',status:'closed',createdAt:'2026-02-28'},
+      {id:gJ16,date:'2026-02-28',type:'정기',    sessionNo:16,duration:7,  buyInAmount:3000,maxEntries:30,awardType:'rank',status:'closed',createdAt:'2026-02-28'},
+      {id:gJ17,date:'2026-03-14',type:'정기',    sessionNo:17,duration:4,  buyInAmount:3000,maxEntries:30,awardType:'rank',status:'closed',createdAt:'2026-03-14'},
+      {id:gK01,date:'2026-02-28',type:'깐부',    sessionNo:1, duration:2,  buyInAmount:3000,maxEntries:20,awardType:'chop',status:'closed',createdAt:'2026-02-28'},
+      {id:gK02,date:'2026-02-28',type:'깐부',    sessionNo:2, duration:2,  buyInAmount:3000,maxEntries:20,awardType:'chop',status:'closed',createdAt:'2026-02-28'},
+      {id:gK03,date:'2026-02-28',type:'깐부',    sessionNo:3, duration:2,  buyInAmount:3000,maxEntries:20,awardType:'chop',status:'closed',createdAt:'2026-02-28'},
+      {id:gK04,date:'2026-03-14',type:'깐부',    sessionNo:4, duration:1.5,buyInAmount:3000,maxEntries:20,awardType:'chop',status:'closed',createdAt:'2026-03-14'},
+      {id:gP01,date:'2026-03-14',type:'파인애플', sessionNo:1, duration:2,  buyInAmount:3000,maxEntries:20,awardType:'rank',status:'closed',createdAt:'2026-03-14'},
+    ]);
+
+    // ── 엔트리 ──
+    const entries=[];
+    function E(gid,uid,type,pay){entries.push({id:uuid(),gameId:gid,userId:uid,type:type||'buyin',payment:pay||'cash',amount:3000,createdAt:new Date().toISOString()});}
+
+    // 정기 1차 (8 entries) 25-12-13
+    [uJinuk,uKimik,uIntae,uHanyong,uJiwon,uYerim,uDohyun,uBobae].forEach(u=>E(gJ01,u));
+    // 정기 2차 (11 entries)
+    [uJinuk,uKimik,uIntae,uHanyong,uJiwon,uYerim,uDohyun,uBobae,uJihyun,uJongmin].forEach(u=>E(gJ02,u));
+    E(gJ02,uJinuk,'rebuy');
+    // 정기 3차 (12 entries)
+    [uJinuk,uKimik,uIntae,uHanyong,uJiwon,uYerim,uDohyun,uBobae,uJihyun,uJongmin].forEach(u=>E(gJ03,u));
+    [uYerim,uJongmin].forEach(u=>E(gJ03,u,'rebuy'));
+    // 정기 4차 (17 entries) 25-12-20
+    [uKimik,uJinuk,uSanghun,uYerim,uBobae,uJiwon,uSomang,uIntae].forEach(u=>E(gJ04,u));
+    [uIntae,uIntae,uSanghun,uSanghun,uYerim,uBobae,uJiwon,uSomang,uKimik].forEach(u=>E(gJ04,u,'rebuy'));
+    // 정기 5차 (14 entries)
+    [uKimik,uJinuk,uSanghun,uYerim,uBobae,uJiwon,uSomang,uIntae].forEach(u=>E(gJ05,u));
+    [uBobae,uSanghun,uYerim,uJiwon,uSomang,uIntae].forEach(u=>E(gJ05,u,'rebuy'));
+    // 정기 6차 (16 entries) 26-01-17
+    [uSanghun,uBobae,uYerim,uJiwon,uKimik,uJinuk,uIntae,uJaehyun].forEach(u=>E(gJ06,u));
+    [uJinuk,uJinuk,uJinuk,uYerim,uIntae,uJaehyun,uSanghun,uSanghun].forEach(u=>E(gJ06,u,'rebuy'));
+    // 정기 7차 (24 entries) — 한용은 8차부터 합류 (PDF 확인)
+    [uSanghun,uBobae,uYerim,uJiwon,uKimik,uJinuk,uIntae,uJaehyun,uJaeik,uEunchae,uSomang].forEach(u=>E(gJ07,u));
+    [uJaeik,uJaeik,uBobae,uBobae,uJinuk,uJinuk,uSomang,uSomang,uJaehyun,uJaehyun,uEunchae,uIntae,uYerim].forEach(u=>E(gJ07,u,'rebuy'));
+    // 정기 8차 (20 entries)
+    [uSanghun,uBobae,uYerim,uJiwon,uKimik,uJinuk,uIntae,uJaehyun,uJaeik,uEunchae,uSomang,uHanyong].forEach(u=>E(gJ08,u));
+    [uBobae,uBobae,uBobae,uSanghun,uSanghun,uHanyong,uJaeik,uJaeik].forEach(u=>E(gJ08,u,'rebuy'));
+    // 정기 9차 (9 entries)
+    [uSomang,uJaeik,uBobae,uYerim,uJiwon,uKimik,uJinuk,uIntae,uJaehyun].forEach(u=>E(gJ09,u));
+    // 정기 10차 (15 entries) 26-01-31
+    [uKimik,uJinuk,uJiwon,uYerim,uJaeik,uSomang,uBobae,uEunchae].forEach(u=>E(gJ10,u));
+    [uJinuk,uBobae,uBobae,uEunchae,uYerim,uSomang,uJaeik].forEach(u=>E(gJ10,u,'rebuy'));
+    // 정기 11차 (13 entries)
+    [uJinuk,uKimik,uJiwon,uYerim,uBobae,uSomang,uEunchae,uJaeik].forEach(u=>E(gJ11,u));
+    [uKimik,uKimik,uSomang,uJinuk,uJinuk].forEach(u=>E(gJ11,u,'rebuy'));
+    // 정기 12차 (10 entries) 26-02-14
+    [uKimik,uJinuk,uBobae,uJongmin,uJaeik,uJiwon,uEunchae].forEach(u=>E(gJ12,u));
+    [uJaeik,uJaeik,uJiwon].forEach(u=>E(gJ12,u,'rebuy'));
+    // 정기 13차 (9 entries)
+    [uKimik,uJinuk,uJeonguk,uBobae,uEunchae,uJiwon].forEach(u=>E(gJ13,u));
+    [uJinuk,uJinuk,uJiwon].forEach(u=>E(gJ13,u,'rebuy'));
+    // 정기 14차 (17 entries) 26-02-18
+    [uYerim,uEunchae,uJiwon,uJaeik,uSomang,uBobae,uKimik].forEach(u=>E(gJ14,u));
+    [uYerim,uJaeik,uJaeik,uJaeik,uJiwon,uJiwon,uBobae,uBobae,uKimik,uSomang].forEach(u=>E(gJ14,u,'rebuy'));
+    // 정기 15차 (8 entries) 26-02-28
+    [uJinuk,uKimik,uIntae,uHanyong,uJiwon,uJaeik,uYerim].forEach(u=>E(gJ15,u,null,u===uKimik||u===uYerim?'seed':'cash'));
+    E(gJ15,uJaeik,'rebuy','cash');
+    // 정기 16차 (11 entries)
+    [uKimik,uYerim,uHanyong,uJiwon,uJinuk,uBobae,uIntae].forEach(u=>E(gJ16,u,null,u===uKimik||u===uYerim?'seed':'cash'));
+    [uKimik,uKimik,uJinuk,uJinuk].forEach(u=>E(gJ16,u,'rebuy',u===uKimik?'seed':'cash'));
+    // 깐부 1차 (8 entries) — 김익 포함, 인태 rebuy 제거
+    [uJinuk,uJiwon,uIntae,uYerim,uEunchae,uBobae,uKimik].forEach(u=>E(gK01,u,null,u===uYerim||u===uKimik?'seed':'cash'));
+    E(gK01,uYerim,'rebuy','seed');
+    // 깐부 2차 (8 entries) — 은채 제외, 인태 rebuy 추가
+    [uJinuk,uJiwon,uIntae,uYerim,uBobae,uKimik,uHanyong].forEach(u=>E(gK02,u,null,u===uYerim||u===uKimik?'seed':'cash'));
+    E(gK02,uIntae,'rebuy','cash');
+    // 깐부 3차 (8 entries) — 한용·은채·인태·예림 제외, 종민 추가
+    [uJinuk,uJiwon,uBobae,uKimik,uJongmin].forEach(u=>E(gK03,u,null,u===uKimik?'seed':'cash'));
+    [uJinuk,uBobae,uKimik].forEach(u=>E(gK03,u,'rebuy',u===uKimik?'seed':'cash'));
+    // 정기 17차 (12 entries) 26-03-14
+    [uSomang,uBobae,uKimik,uJinuk,uJiwon,uEunchae,uYerim,uJaeik,uSion].forEach(u=>E(gJ17,u,null,u===uKimik||u===uYerim?'seed':'cash'));
+    [uJiwon,uEunchae,uYerim].forEach(u=>E(gJ17,u,'rebuy',u===uYerim?'seed':'cash'));
+    // 깐부 4차 (16 entries)
+    [uSomang,uBobae,uKimik,uJinuk,uJiwon,uEunchae,uYerim,uJaeik].forEach(u=>E(gK04,u,null,u===uKimik||u===uSomang?'seed':'cash'));
+    [uSomang,uYerim,uJinuk,uJinuk,uJinuk,uJiwon,uJiwon,uJiwon].forEach(u=>E(gK04,u,'rebuy',u===uSomang||u===uYerim?'seed':'cash'));
+    // 파인애플 1차 (7 entries)
+    [uBobae,uKimik,uJinuk,uJiwon,uYerim,uJaeik].forEach(u=>E(gP01,u,null,u===uKimik||u===uYerim?'seed':'cash'));
+    E(gP01,uJiwon,'rebuy','cash');
+
+    DB.set('entries',entries);
+
+    // ── 수상 내역 (스프레드시트 기준 정확한 게임별 DPI 점수) ──
+    // 공식: 0.3 × 게임총엔트리 × 게임시간 × 비율 / 개인엔트리수
+    function AW(gid,uid,rank,prize,dpi,date){
+      return {id:uuid(),gameId:gid,userId:uid,rank,dpiScore:dpi,prizeAmount:prize||0,createdAt:date};
+    }
+    DB.set('awards',[
+      // 정기 1차 (찹) — 도현·예림
+      AW(gJ01,uDohyun,null,0,    4.8, '2025-12-13'),
+      AW(gJ01,uYerim, null,0,    4.8, '2025-12-13'),
+      // 정기 2차 (찹) — 김익·진욱
+      AW(gJ02,uKimik, null,0,    6.6, '2025-12-13'),
+      AW(gJ02,uJinuk, null,0,    2.8, '2025-12-13'),
+      // 정기 3차 (찹) — 김익·지원·지현
+      AW(gJ03,uKimik, null,0,    4.8, '2025-12-13'),
+      AW(gJ03,uJiwon, null,0,    4.8, '2025-12-13'),
+      AW(gJ03,uJihyun,null,0,    4.8, '2025-12-13'),
+      // 정기 4차 (찹) — 진욱·인태
+      AW(gJ04,uJinuk, null,0,    10.2,'2025-12-20'),
+      AW(gJ04,uIntae, null,0,    2.8, '2025-12-20'),
+      // 정기 5차 (찹) — 보배·진욱
+      AW(gJ05,uBobae, null,0,    3.5, '2025-12-20'),
+      AW(gJ05,uJinuk, null,0,    8.4, '2025-12-20'),
+      // 정기 6차 (찹) — 재현·지원
+      AW(gJ06,uJaehyun,null,0,   4.0, '2026-01-17'),
+      AW(gJ06,uJiwon,  null,0,   9.6, '2026-01-17'),
+      // 정기 7차 (찹) — 재익·보배
+      AW(gJ07,uJaeik, null,0,    4.0, '2026-01-17'),
+      AW(gJ07,uBobae, null,0,    4.0, '2026-01-17'),
+      // 정기 8차 (찹) — 김익·인태
+      AW(gJ08,uKimik, null,0,    12.0,'2026-01-17'),
+      AW(gJ08,uIntae, null,0,    12.0,'2026-01-17'),
+      // 정기 9차 (찹) — 소망·보배
+      AW(gJ09,uSomang,null,0,    5.4, '2026-01-17'),
+      AW(gJ09,uBobae, null,0,    5.4, '2026-01-17'),
+      // 정기 10차 (순위) — 김익1·재익2·진욱3
+      AW(gJ10,uKimik,1, 0,       18.0,'2026-01-31'),
+      AW(gJ10,uJaeik,2, 0,       10.8,'2026-01-31'),
+      AW(gJ10,uJinuk,3, 0,       3.0, '2026-01-31'),
+      // 정기 11차 (순위) — 김익1·예림2·소망3
+      AW(gJ11,uKimik, 1,0,       2.2, '2026-01-31'),
+      AW(gJ11,uYerim, 2,0,       4.7, '2026-01-31'),
+      AW(gJ11,uSomang,3,0,       1.3, '2026-01-31'),
+      // 정기 12차 (순위) — 보배1·김익2·지원3
+      AW(gJ12,uBobae,1, 0,       9.0, '2026-02-14'),
+      AW(gJ12,uKimik,2, 0,       5.4, '2026-02-14'),
+      AW(gJ12,uJiwon,3, 0,       1.5, '2026-02-14'),
+      // 정기 13차 (순위) — 김익1·지원2·정욱3
+      AW(gJ13,uKimik,  1,0,      6.8, '2026-02-14'),
+      AW(gJ13,uJiwon,  2,0,      1.7, '2026-02-14'),
+      AW(gJ13,uJeonguk,3,0,      2.7, '2026-02-14'),
+      // 정기 14차 (순위) — 예림1·소망2·은채3
+      AW(gJ14,uYerim,  1,0,      7.4, '2026-02-18'),
+      AW(gJ14,uSomang, 2,0,      10.7,'2026-02-18'),
+      AW(gJ14,uEunchae,3,0,      7.1, '2026-02-18'),
+      // 정기 15차 (순위) — 진욱1·김익2·재익3
+      AW(gJ15,uJinuk,1, 0,       4.8, '2026-02-28'),
+      AW(gJ15,uKimik,2, 0,       2.9, '2026-02-28'),
+      AW(gJ15,uJaeik,3, 0,       0.8, '2026-02-28'),
+      // 정기 16차 (순위) — 예림1·인태2·보배3
+      AW(gJ16,uYerim, 1,0,       11.6,'2026-02-28'),
+      AW(gJ16,uIntae, 2,0,       6.9, '2026-02-28'),
+      AW(gJ16,uBobae, 3,0,       4.6, '2026-02-28'),
+      // 깐부 1차 (찹) — 은채·보배 5,000원
+      AW(gK01,uEunchae,null,5000, 2.4,'2026-02-28'),
+      AW(gK01,uBobae,  null,5000, 2.4,'2026-02-28'),
+      // 깐부 2차 (찹) — 예림·김익 5,000원
+      AW(gK02,uYerim,null,5000,   2.4,'2026-02-28'),
+      AW(gK02,uKimik,null,5000,   2.4,'2026-02-28'),
+      // 깐부 3차 (찹) — 진욱·보배 5,000원
+      AW(gK03,uJinuk,null,5000,   2.4,'2026-02-28'),
+      AW(gK03,uBobae,null,5000,   2.4,'2026-02-28'),
+      // 정기 17차 (순위) — 김익1 1만·소망2 5천
+      AW(gJ17,uKimik, 1,10000,    7.2,'2026-03-14'),
+      AW(gJ17,uSomang,2,5000,     4.3,'2026-03-14'),
+      // 깐부 4차 (찹) — 보배·은채 1만원
+      AW(gK04,uBobae,  null,10000,3.6,'2026-03-14'),
+      AW(gK04,uEunchae,null,10000,3.6,'2026-03-14'),
+      // 파인애플 1차 (순위) — 진욱1 1만·김익2
+      AW(gP01,uJinuk,1,10000,     2.1,'2026-03-14'),
+      AW(gP01,uKimik,2,0,         1.3,'2026-03-14'),
+    ]);
+
+    // ── 시드 내역 (현재 잔액 기준) ──
+    DB.set('seedTxns',[
+      {id:uuid(),userId:uKimik,  type:'charge',amount:10000,balanceAfter:10000,note:'시드 현황 기준',entryId:null,createdAt:'2026-03-25'},
+      {id:uuid(),userId:uBobae,  type:'charge',amount:50000,balanceAfter:50000,note:'시드 현황 기준',entryId:null,createdAt:'2026-03-25'},
+      {id:uuid(),userId:uJinuk,  type:'charge',amount:27000,balanceAfter:27000,note:'시드 현황 기준',entryId:null,createdAt:'2026-03-25'},
+      {id:uuid(),userId:uYerim,  type:'charge',amount:16000,balanceAfter:16000,note:'시드 현황 기준',entryId:null,createdAt:'2026-03-25'},
+      {id:uuid(),userId:uJiwon,  type:'charge',amount:27000,balanceAfter:27000,note:'시드 현황 기준',entryId:null,createdAt:'2026-03-25'},
+      {id:uuid(),userId:uIntae,  type:'charge',amount:15000,balanceAfter:15000,note:'시드 현황 기준',entryId:null,createdAt:'2026-03-25'},
+      {id:uuid(),userId:uSomang, type:'charge',amount:19000,balanceAfter:19000,note:'시드 현황 기준',entryId:null,createdAt:'2026-03-25'},
+      {id:uuid(),userId:uDohyun, type:'charge',amount:10000,balanceAfter:10000,note:'시드 현황 기준',entryId:null,createdAt:'2026-03-25'},
+      {id:uuid(),userId:uJaehyun,type:'charge',amount:10000,balanceAfter:10000,note:'시드 현황 기준',entryId:null,createdAt:'2026-03-25'},
+      {id:uuid(),userId:uJihyun, type:'charge',amount:7000, balanceAfter:7000, note:'시드 현황 기준',entryId:null,createdAt:'2026-03-25'},
+      {id:uuid(),userId:uEunchae,type:'charge',amount:15000,balanceAfter:15000,note:'시드 현황 기준',entryId:null,createdAt:'2026-03-25'},
+    ]);
+
+    DB.set('init_v4', true);
+  }
+
+  // ============================
+  // AUTH
+  // ============================
+  let CU = null; // current user
+  try { CU = JSON.parse(sessionStorage.getItem('dg_cu') || 'null'); } catch {}
+
+  function doLogin(username, password) {
+    const u = (DB.get('users')||[]).find(u => u.username===username && u.password===password);
+    if (u) { CU = {...u}; sessionStorage.setItem('dg_cu', JSON.stringify(CU)); }
+    return u || null;
+  }
+  function logout() { CU=null; sessionStorage.removeItem('dg_cu'); go('/login'); }
+  function syncUser() {
+    if (!CU) return;
+    const u = (DB.get('users')||[]).find(u=>u.id===CU.id);
+    if (u) { CU={...u}; sessionStorage.setItem('dg_cu', JSON.stringify(CU)); }
+  }
+
+  // ============================
+  // ROUTER
+  // ============================
+  function go(path) { window.location.hash = path; }
+  function getPath() { return window.location.hash.slice(1) || '/login'; }
+
+  window.addEventListener('hashchange', render);
+
+  function render() {
+    const path = getPath();
+    const app = document.getElementById('app');
+    if (path === '/login') { app.innerHTML = loginPage(); return; }
+    if (!CU) { go('/login'); return; }
+    syncUser();
+
+    const isAdmin = CU.role === 'admin';
+
+    // Player routes
+    if (path === '/dashboard') { app.innerHTML = wrap(dashboardPage(), false); return; }
+    if (path === '/games') { app.innerHTML = wrap(gamesPage(), false); return; }
+    if (path.startsWith('/games/') && !path.startsWith('/games/a')) {
+      const id = path.split('/')[2];
+      app.innerHTML = wrap(gameDetailPage(id), false); return;
+    }
+    if (path === '/seed') { app.innerHTML = wrap(seedPage(), false); return; }
+    if (path === '/ranking') { app.innerHTML = wrap(rankingPage(), false); return; }
+    if (path === '/profile') { app.innerHTML = wrap(profilePage(), false); bindProfile(); return; }
+
+    // Admin routes
+    if (isAdmin) {
+      if (path === '/admin/dashboard') { app.innerHTML = wrap(adminDashPage(), true); return; }
+      if (path === '/admin/games') { app.innerHTML = wrap(adminGamesPage(), true); return; }
+      if (path.startsWith('/admin/games/')) { const id=path.split('/')[3]; app.innerHTML=wrap(adminGameDetailPage(id),true); bindAdminGameDetail(id); return; }
+      if (path === '/admin/players') { app.innerHTML = wrap(adminPlayersPage(), true); return; }
+      if (path.startsWith('/admin/players/')) { const id=path.split('/')[3]; app.innerHTML=wrap(adminPlayerDetail(id),true); bindPlayerSeed(id); return; }
+      if (path === '/admin/seed') { app.innerHTML = wrap(adminSeedPage(), true); return; }
+    }
+
+    go(isAdmin ? '/admin/dashboard' : '/dashboard');
+  }
+
+  // ============================
+  // LAYOUT
+  // ============================
+  function wrap(content, admin) {
+    const p = getPath();
+    const playerNav = [
+      {h:'/dashboard', i:'🏠', l:'대시보드'},
+      {h:'/games', i:'🃏', l:'게임 목록'},
+      {h:'/seed', i:'💰', l:'시드 내역'},
+      {h:'/ranking', i:'🏆', l:'DPI 랭킹'},
+      {h:'/profile', i:'👤', l:'내 정보'},
+    ];
+    const adminNav = [
+      {h:'/admin/dashboard', i:'📊', l:'현황 요약'},
+      {h:'/admin/games', i:'🃏', l:'게임 관리'},
+      {h:'/admin/players', i:'👥', l:'플레이어'},
+      {h:'/admin/seed', i:'💰', l:'시드 현황'},
+    ];
+    const nav = (admin && CU.role==='admin') ? adminNav : playerNav;
+    const links = nav.map(n=>`<a href="#${n.h}" class="nav-link ${p===n.h?'active':''}">${n.i} ${n.l}</a>`).join('');
+    const toggleAdmin = CU.role==='admin' ? `
+      <div class="border-t border-slate-700 pt-3 mt-2">
+        <a href="#${admin?'/dashboard':'/admin/dashboard'}" class="nav-link text-xs text-slate-500">
+          ${admin?'↩ 플레이어 뷰':'⚙ 관리자 뷰'}
+        </a>
+      </div>` : '';
+    return `
+      <div class="flex" style="min-height:100vh">
+        <div class="sidebar flex flex-col">
+          <div class="mb-6 px-2">
+            <div class="text-green-400 font-bold text-lg">♠ DG 홀덤</div>
+            <div class="text-slate-500 text-xs mt-1">${CU.name} · ${CU.role==='admin'?'관리자':'플레이어'}</div>
+          </div>
+          <nav class="flex flex-col gap-0.5 flex-1">${links}</nav>
+          ${toggleAdmin}
+          <button onclick="logout()" class="mt-4 text-left nav-link text-slate-500 text-xs">🚪 로그아웃</button>
+        </div>
+        <div class="flex-1 p-6 overflow-auto" style="max-width:calc(100vw - 220px)">${content}</div>
+      </div>`;
+  }
+
+  // ============================
+  // LOGIN
+  // ============================
+  function loginPage() {
+    return `
+      <div class="min-h-screen flex items-center justify-center p-4">
+        <div class="card p-8 w-full" style="max-width:360px">
+          <div class="text-center mb-8">
+            <div class="text-5xl mb-3">♠</div>
+            <h1 class="text-2xl font-bold text-green-400">DG 홀덤 모임</h1>
+            <p class="text-slate-500 text-sm mt-1">대구 홀덤 모임 관리 시스템</p>
+          </div>
+          <div id="login-err" class="hidden bg-red-900/40 text-red-400 text-sm p-3 rounded-lg mb-4"></div>
+          <form id="lf" class="space-y-4">
+            <div>
+              <label class="text-slate-400 text-xs mb-1 block">아이디</label>
+              <input id="lu" type="text" class="input" placeholder="아이디" autocomplete="username" />
+            </div>
+            <div>
+              <label class="text-slate-400 text-xs mb-1 block">비밀번호</label>
+              <input id="lp" type="password" class="input" placeholder="비밀번호" autocomplete="current-password" />
+            </div>
+            <button type="submit" class="btn-primary w-full text-center mt-2">로그인</button>
+          </form>
+          <p class="text-slate-600 text-xs text-center mt-6">관리자: admin / admin123<br>플레이어 예시: kimik / 1234</p>
+        </div>
+      </div>`;
+  }
+  document.addEventListener('submit', e => {
+    if (e.target.id === 'lf') {
+      e.preventDefault();
+      const u = doLogin(document.getElementById('lu').value.trim(), document.getElementById('lp').value);
+      if (u) go(u.role==='admin' ? '/admin/dashboard' : '/dashboard');
+      else {
+        const el = document.getElementById('login-err');
+        el.textContent = '아이디 또는 비밀번호가 올바르지 않습니다.';
+        el.classList.remove('hidden');
+      }
+    }
+  });
+
+  // ============================
+  // PLAYER DASHBOARD
+  // ============================
+  function dashboardPage() {
+    const games = DB.get('games') || [];
+    const entries = DB.get('entries') || [];
+    const openGames = games.filter(g => g.status === 'open');
+    const myEntries = entries.filter(e => e.userId === CU.id);
+    const myGameIds = [...new Set(myEntries.map(e => e.gameId))];
+    const recentGames = myGameIds.map(gid => {
+      const game = games.find(g => g.id === gid);
+      const ge = myEntries.filter(e => e.gameId === gid);
+      return { game, buyins: ge.filter(e=>e.type==='buyin').length, rebuys: ge.filter(e=>e.type==='rebuy').length, ge };
+    }).filter(x => x.game).slice(0, 5);
+
+    const openCards = openGames.length ? openGames.map(g => {
+      const cnt = [...new Set((entries.filter(e=>e.gameId===g.id)).map(e=>e.userId))].length;
+      const joined = entries.some(e=>e.gameId===g.id && e.userId===CU.id);
+      return `
+        <div class="card p-4 flex items-center justify-between">
+          <div>
+            <div class="flex items-center gap-2 mb-1">
+              <span class="font-semibold">${g.type} ${g.sessionNo}차</span>
+              <span class="badge-open">모집중</span>
+              <span class="text-xs text-slate-500">${g.awardType==='chop'?'찹':'순위'}</span>
+            </div>
+            <div class="text-slate-400 text-sm">${g.date} · ${g.duration}시간 · 바인 ${fmtMoney(g.buyInAmount)}</div>
+            <div class="text-slate-500 text-xs">${cnt}/${g.maxEntries}명 참가</div>
+          </div>
+          <a href="#/games/${g.id}" class="btn-primary btn-sm">${joined?'🔄 리바인':'✋ 참가'}</a>
+        </div>`;
+    }).join('') : `<div class="card p-8 text-center text-slate-400">현재 모집중인 게임이 없습니다.</div>`;
+
+    const recentRows = recentGames.map(({game,buyins,rebuys,ge}) => {
+      const seed = ge.filter(e=>e.payment==='seed').reduce((s,e)=>s+e.amount,0);
+      const cash = ge.filter(e=>e.payment==='cash').reduce((s,e)=>s+e.amount,0);
+      return `<tr>
+        <td><a href="#/games/${game.id}" class="text-green-400 hover:underline">${game.type} ${game.sessionNo}차</a></td>
+        <td class="text-slate-400">${game.date}</td>
+        <td>${buyins}</td><td>${rebuys}</td>
+        <td class="text-xs text-slate-400">${seed?'시드 '+fmtMoney(seed):''}${cash?' 현금 '+fmtMoney(cash):''}</td>
+      </tr>`;
+    }).join('');
+
+    return `
+      <div class="space-y-6">
+        <div>
+          <h1 class="text-2xl font-bold">안녕하세요, ${CU.name}님 👋</h1>
+          <p class="text-slate-400 text-sm">DG 홀덤 모임 대시보드</p>
+        </div>
+        <div class="card p-6" style="background:linear-gradient(135deg,#14532d33,#052e1633);border-color:#166534aa">
+          <div class="flex items-start justify-between">
+            <div>
+              <p class="text-slate-400 text-sm">현재 시드 잔액</p>
+              <p class="text-3xl font-bold text-green-400 mt-1">${fmtMoney(CU.seedBalance)}</p>
+              <p class="text-slate-500 text-xs mt-2">바인 ${Math.floor(CU.seedBalance/3000)}회 가능</p>
+            </div>
+            <span class="text-4xl">🌱</span>
+          </div>
+          <a href="#/seed" class="text-green-400 text-sm mt-3 inline-block hover:underline">시드 내역 보기 →</a>
+        </div>
+        <div>
+          <h2 class="text-lg font-semibold mb-3">모집중인 게임</h2>
+          <div class="space-y-3">${openCards}</div>
+        </div>
+        ${recentGames.length ? `
+        <div>
+          <h2 class="text-lg font-semibold mb-3">최근 참여 내역</h2>
+          <div class="card overflow-hidden">
+            <table><thead><tr><th>게임</th><th>날짜</th><th>바인</th><th>리바인</th><th>결제</th></tr></thead>
+            <tbody>${recentRows}</tbody></table>
+          </div>
+        </div>` : ''}
+      </div>`;
+  }
+
+  // ============================
+  // GAMES LIST
+  // ============================
+  function gamesPage() {
+    const games = (DB.get('games')||[]).sort((a,b)=>b.date.localeCompare(a.date));
+    const entries = DB.get('entries') || [];
+    const rows = games.map(g => {
+      const ge = entries.filter(e=>e.gameId===g.id);
+      const cnt = [...new Set(ge.map(e=>e.userId))].length;
+      return `
+        <a href="#/games/${g.id}" class="card p-4 flex items-center justify-between hover:border-green-800 transition-colors cursor-pointer block" style="text-decoration:none">
+          <div class="flex items-center gap-4">
+            <div class="text-2xl">${{정기:'🃏',깐부:'🤝',파인애플:'🍎'}[g.type]||'🃏'}</div>
+            <div>
+              <div class="flex items-center gap-2 mb-1">
+                <span class="font-semibold text-white">${g.type} ${g.sessionNo}차</span>
+                ${statusBadge(g.status)}
+                <span class="text-xs text-slate-500">${g.awardType==='chop'?'찹':'순위'}</span>
+              </div>
+              <div class="text-slate-400 text-sm">${g.date} · ${g.duration}시간 · 바인 ${fmtMoney(g.buyInAmount)}</div>
+              <div class="text-slate-500 text-xs">${cnt}명 참가 (엔트리 ${ge.length}개) / 최대 ${g.maxEntries}명</div>
+            </div>
+          </div>
+          <span class="text-slate-500">→</span>
+        </a>`;
+    }).join('');
+    return `
+      <div class="space-y-6">
+        <h1 class="text-2xl font-bold">게임 목록</h1>
+        <div class="space-y-3">${rows||'<div class="card p-8 text-center text-slate-400">게임이 없습니다.</div>'}</div>
+      </div>`;
+  }
+
+  // ============================
+  // GAME DETAIL (Player)
+  // ============================
+  function gameDetailPage(gameId) {
+    const game = (DB.get('games')||[]).find(g=>g.id===gameId);
+    if (!game) return '<p class="text-red-400 p-6">게임을 찾을 수 없습니다.</p>';
+    const entries = DB.get('entries') || [];
+    const awards = DB.get('awards') || [];
+    const users = DB.get('users') || [];
+    const ge = entries.filter(e=>e.gameId===gameId);
+    const ga = awards.filter(a=>a.gameId===gameId);
+    const participants = [...new Set(ge.map(e=>e.userId))];
+    const myE = ge.filter(e=>e.userId===CU.id);
+    const totalPrize = ge.length * game.buyInAmount;
+
+    const pRows = participants.map(uid => {
+      const user = users.find(u=>u.id===uid);
+      const ue = ge.filter(e=>e.userId===uid);
+      const seed = ue.filter(e=>e.payment==='seed').reduce((s,e)=>s+e.amount,0);
+      const cash = ue.filter(e=>e.payment==='cash').reduce((s,e)=>s+e.amount,0);
+      const award = ga.find(a=>a.userId===uid);
+      return `<tr>
+        <td class="font-medium">${user?.name||uid} ${uid===CU.id?'<span class="text-green-400 text-xs">(나)</span>':''}</td>
+        <td>${ue.filter(e=>e.type==='buyin').length}</td>
+        <td>${ue.filter(e=>e.type==='rebuy').length}</td>
+        <td class="text-sm">${seed?'<span class="text-blue-400">시드 '+fmtMoney(seed)+'</span>':''} ${cash?'<span class="text-orange-400">현금 '+fmtMoney(cash)+'</span>':''}</td>
+        <td>${award ? (award.rank?`<span class="text-yellow-400">${award.rank}등</span> ${fmtMoney(award.prizeAmount)}`:`<span class="text-green-400">찹</span> ${fmtMoney(award.prizeAmount)}`) : '-'}</td>
+      </tr>`;
+    }).join('');
+
+    return `
+      <div class="space-y-6">
+        <a href="#/games" class="text-slate-400 hover:text-white text-sm">← 목록으로</a>
+        <div class="card p-6">
+          <div class="flex items-start justify-between flex-wrap gap-4">
+            <div>
+              <div class="flex items-center gap-3 mb-3">
+                <h1 class="text-2xl font-bold">${game.type} ${game.sessionNo}차</h1>
+                ${statusBadge(game.status)}
+              </div>
+              <div class="grid grid-cols-2 gap-x-10 gap-y-2 text-sm">
+                <div><span class="text-slate-400">날짜</span> <span class="ml-2">${game.date}</span></div>
+                <div><span class="text-slate-400">게임시간</span> <span class="ml-2">${game.duration}시간</span></div>
+                <div><span class="text-slate-400">바인금액</span> <span class="ml-2 text-green-400 font-semibold">${fmtMoney(game.buyInAmount)}</span></div>
+                <div><span class="text-slate-400">수상방식</span> <span class="ml-2">${game.awardType==='chop'?'찹 (1/N)':'순위 (5:3:2)'}</span></div>
+                <div><span class="text-slate-400">참가현황</span> <span class="ml-2">${participants.length}/${game.maxEntries}명</span></div>
+                <div><span class="text-slate-400">상금풀</span> <span class="ml-2 text-yellow-400 font-semibold">${fmtMoney(totalPrize)}</span></div>
+              </div>
+            </div>
+            ${game.status==='open' ? `<button onclick="showBuyinModal('${gameId}')" class="btn-primary">${myE.length?'🔄 리바인':'✋ 참가하기'}</button>` : ''}
+          </div>
+          ${myE.length ? `
+          <div class="mt-4 p-3 rounded-lg text-sm" style="background:#16a34a15;border:1px solid #16a34a44">
+            내 참가: 바인 ${myE.filter(e=>e.type==='buyin').length}회 · 리바인 ${myE.filter(e=>e.type==='rebuy').length}회
+          </div>` : ''}
+        </div>
+        ${participants.length ? `
+        <div>
+          <h2 class="text-lg font-semibold mb-3">참가자 (${participants.length}명)</h2>
+          <div class="card overflow-hidden">
+            <table><thead><tr><th>이름</th><th>바인</th><th>리바인</th><th>결제 방식</th><th>수상</th></tr></thead>
+            <tbody>${pRows}</tbody></table>
+          </div>
+        </div>` : `<div class="card p-8 text-center text-slate-400">아직 참가자가 없습니다.</div>`}
+      </div>`;
+  }
+
+  // Buy-in modal
+  window.showBuyinModal = function(gameId) {
+    const game = (DB.get('games')||[]).find(g=>g.id===gameId);
+    const entries = DB.get('entries')||[];
+    const joined = entries.some(e=>e.gameId===gameId&&e.userId===CU.id);
+    const canSeed = CU.seedBalance >= game.buyInAmount;
+    document.getElementById('modal-root').innerHTML = `
+      <div class="modal-overlay" id="mo">
+        <div class="modal">
+          <h3 class="text-lg font-bold mb-1">${joined?'리바인':'바인'} 신청</h3>
+          <p class="text-slate-400 text-sm mb-5">참가 금액: <span class="text-green-400 font-bold">${fmtMoney(game.buyInAmount)}</span></p>
+          <p class="text-slate-400 text-sm mb-4">시드 잔액: <span class="font-mono">${fmtMoney(CU.seedBalance)}</span></p>
+          ${canSeed
+            ? `<button onclick="doBuyin('${gameId}','seed')" class="btn-primary w-full text-center mb-3">🌱 시드 사용 → 잔액 ${fmtMoney(CU.seedBalance-game.buyInAmount)}</button>`
+            : `<button disabled class="w-full mb-3 p-2 rounded-lg text-slate-500 text-sm cursor-not-allowed" style="background:#1e293b;border:1px solid #334155">🌱 시드 잔액 부족</button>`
+          }
+          <button onclick="doBuyin('${gameId}','cash')" class="btn-secondary w-full text-center mb-3">💵 현금 참가 (오프라인 수금)</button>
+          <button onclick="closeM()" class="w-full text-slate-500 text-sm mt-1 text-center">취소</button>
+        </div>
+      </div>`;
+    document.getElementById('mo').addEventListener('click', e => { if(e.target.id==='mo') closeM(); });
+  };
+  window.closeM = () => { document.getElementById('modal-root').innerHTML = ''; };
+
+  window.doBuyin = function(gameId, payment) {
+    const game = (DB.get('games')||[]).find(g=>g.id===gameId);
+    const entries = DB.get('entries')||[];
+    const joined = entries.some(e=>e.gameId===gameId&&e.userId===CU.id);
+    const eid = uuid();
+    entries.push({ id:eid, gameId, userId:CU.id, type:joined?'rebuy':'buyin', payment, amount:game.buyInAmount, createdAt:new Date().toISOString() });
+    DB.set('entries', entries);
+    if (payment==='seed') {
+      const users = DB.get('users')||[];
+      const ui = users.findIndex(u=>u.id===CU.id);
+      users[ui].seedBalance -= game.buyInAmount;
+      DB.set('users', users);
+      const txns = DB.get('seedTxns')||[];
+      txns.push({ id:uuid(), userId:CU.id, type:'use', amount:-game.buyInAmount, balanceAfter:users[ui].seedBalance, note:`${game.type} ${game.sessionNo}차 ${joined?'리바인':'바인'}`, entryId:eid, createdAt:new Date().toISOString() });
+      DB.set('seedTxns', txns);
+      syncUser();
+    }
+    closeM();
+    render();
+  };
+
+  // ============================
+  // SEED PAGE
+  // ============================
+  function seedPage() {
+    const txns = (DB.get('seedTxns')||[]).filter(t=>t.userId===CU.id).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
+    const charged = txns.filter(t=>t.type==='charge').reduce((s,t)=>s+t.amount,0);
+    const used = txns.filter(t=>t.type==='use').reduce((s,t)=>s+Math.abs(t.amount),0);
+    const typeLabel = { charge:'<span class="text-blue-400">충전</span>', use:'<span class="text-orange-400">사용</span>', refund:'<span class="text-green-400">환불</span>' };
+    const rows = txns.map(t=>`<tr>
+      <td class="text-slate-400 text-xs">${fmtDT(t.createdAt)}</td>
+      <td>${typeLabel[t.type]||t.type}</td>
+      <td class="font-mono ${t.amount>0?'text-blue-400':'text-orange-400'}">${t.amount>0?'+':''}${fmtMoney(t.amount)}</td>
+      <td class="font-mono">${fmtMoney(t.balanceAfter)}</td>
+      <td class="text-slate-400 text-sm">${t.note||'-'}</td>
+    </tr>`).join('');
+    return `
+      <div class="space-y-6">
+        <h1 class="text-2xl font-bold">💰 시드 내역</h1>
+        <div class="grid grid-cols-3 gap-4">
+          <div class="stat-card"><p class="text-slate-400 text-xs">현재 잔액</p><p class="text-2xl font-bold text-green-400 mt-1">${fmtMoney(CU.seedBalance)}</p></div>
+          <div class="stat-card"><p class="text-slate-400 text-xs">총 충전</p><p class="text-xl font-bold text-blue-400 mt-1">${fmtMoney(charged)}</p></div>
+          <div class="stat-card"><p class="text-slate-400 text-xs">총 사용</p><p class="text-xl font-bold text-orange-400 mt-1">${fmtMoney(used)}</p></div>
+        </div>
+        <div>
+          <h2 class="text-lg font-semibold mb-3">거래 내역</h2>
+          <div class="card overflow-hidden">
+            <table><thead><tr><th>일시</th><th>구분</th><th>금액</th><th>잔액</th><th>내용</th></tr></thead>
+            <tbody>${rows||'<tr><td colspan="5" class="text-center text-slate-500 py-8">내역 없음</td></tr>'}</tbody></table>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // ============================
+  // RANKING
+  // ============================
+  function rankingPage() {
+    const users = (DB.get('users')||[]).filter(u=>u.role==='player');
+    const entries = DB.get('entries')||[];
+    const awards = DB.get('awards')||[];
+
+    const stats = users.map(u => {
+      const ue = entries.filter(e=>e.userId===u.id);
+      const ua = awards.filter(a=>a.userId===u.id);
+      const gamesPlayed = [...new Set(ue.map(e=>e.gameId))].length;
+      const totalBuyins = ue.filter(e=>e.type==='buyin').length; // = gamesPlayed
+      const totalRebuys = ue.filter(e=>e.type==='rebuy').length;
+      const wins1 = ua.filter(a=>a.rank===1).length;
+      const winsChop = ua.filter(a=>a.rank===null).length;
+      const totalWins = ua.length;
+      const dealer = u.dealer || 0;
+      const rawScore = ua.reduce((s,a)=>s+(a.dpiScore||0),0);
+      // DPI 공식: 수상점수합 × MIN(1, 총바인/10) + 총바인×0.2 + 딜러×0.5
+      const totalDPI = rawScore * Math.min(1, totalBuyins/10) + totalBuyins*0.2 + dealer*0.5;
+      const expectedDPI = rawScore + totalBuyins*0.2 + dealer*0.5; // 패널티 없을 때
+      const penalty = totalBuyins < 10;
+      return { u, gamesPlayed, totalBuyins, totalRebuys, wins1, winsChop, totalWins, rawScore, totalDPI, expectedDPI, penalty, dealer };
+    }).sort((a,b) => b.totalDPI - a.totalDPI);
+
+    const icons = ['🥇','🥈','🥉'];
+    const rows = stats.map((s,i) => `<tr ${s.u.id===CU.id?'style="background:#16a34a10"':''}>
+      <td class="${i<3?['rank-1','rank-2 text-slate-300','rank-3'][i]:'text-slate-400'}">${icons[i]||i+1}</td>
+      <td class="font-medium">${s.u.name} ${s.u.id===CU.id?'<span class="text-green-400 text-xs">(나)</span>':''}</td>
+      <td>${s.gamesPlayed}</td>
+      <td>${s.totalBuyins}</td>
+      <td>${s.totalRebuys}</td>
+      <td class="font-semibold">${s.totalWins}</td>
+      <td class="font-bold ${s.penalty?'text-slate-400':'text-yellow-400'}">${s.totalDPI.toFixed(1)}${s.penalty?`<span class="text-slate-500 text-xs font-normal"> (기대 ${s.expectedDPI.toFixed(1)})</span>`:''}</td>
+      <td>${s.penalty?'<span class="text-orange-400 text-xs">⚠ 미달</span>':'<span class="text-green-400 text-xs">✓</span>'}</td>
+    </tr>`).join('');
+
+    return `
+      <div class="space-y-6">
+        <h1 class="text-2xl font-bold">🏆 DPI 순위 리더보드</h1>
+        <div class="card overflow-hidden">
+          <table><thead><tr><th>순위</th><th>이름</th><th>참여</th><th>바인</th><th>리바인</th><th>우승횟수</th><th>DPI 점수</th><th>비고</th></tr></thead>
+          <tbody>${rows}</tbody></table>
+        </div>
+        <div class="card p-5 text-sm text-slate-400">
+          <p class="font-semibold text-slate-300 mb-3">📐 DPI 계산 방식</p>
+          <div class="grid grid-cols-2 gap-x-8 gap-y-1">
+            <p>• 게임점수 = 0.3 × 총엔트리 × 게임시간 × 비율 / 개인엔트리</p>
+            <p>• 순위 비율: 1등 50% / 2등 30% / 3등 20%</p>
+            <p>• 찹: 동률자 수로 균등 분배</p>
+            <p>• DPI = 점수합 × MIN(1, 총바인/10) + 총바인×0.2 + 딜러×0.5</p>
+            <p>• 10게임 미만: 수상점수에 (총바인/10) 페널티 적용</p>
+            <p>• 딜러 참여 1회 = +0.5점</p>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // ============================
+  // PROFILE
+  // ============================
+  function profilePage() {
+    const txns = DB.get('seedTxns')||[];
+    const entries = DB.get('entries')||[];
+    const awards = DB.get('awards')||[];
+    const gamesPlayed = [...new Set(entries.filter(e=>e.userId===CU.id).map(e=>e.gameId))].length;
+    const totalDPI = awards.filter(a=>a.userId===CU.id).reduce((s,a)=>s+(a.dpiScore||0),0);
+    return `
+      <div class="space-y-6">
+        <h1 class="text-2xl font-bold">내 정보</h1>
+        <div class="card p-6">
+          <div class="flex items-center gap-4 mb-6">
+            <div class="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold text-green-400" style="background:#14532d33">${CU.name[0]}</div>
+            <div>
+              <p class="text-xl font-bold">${CU.name}</p>
+              <p class="text-slate-400 text-sm">@${CU.username}</p>
+            </div>
+          </div>
+          <div class="grid grid-cols-3 gap-4">
+            <div class="stat-card"><p class="text-slate-400 text-xs">시드 잔액</p><p class="text-xl font-bold text-green-400 mt-1">${fmtMoney(CU.seedBalance)}</p></div>
+            <div class="stat-card"><p class="text-slate-400 text-xs">참여 게임</p><p class="text-xl font-bold mt-1">${gamesPlayed}회</p></div>
+            <div class="stat-card"><p class="text-slate-400 text-xs">누적 DPI</p><p class="text-xl font-bold text-yellow-400 mt-1">${totalDPI.toFixed(1)}</p></div>
+          </div>
+        </div>
+        <div class="card p-6">
+          <h2 class="text-lg font-semibold mb-4">아이디 변경</h2>
+          <div id="id-msg" class="hidden mb-3"></div>
+          <form id="id-form" class="space-y-3" style="max-width:320px">
+            <div><label class="text-slate-400 text-xs mb-1 block">현재 아이디</label><input class="input" value="${CU.username}" disabled /></div>
+            <div><label class="text-slate-400 text-xs mb-1 block">새 아이디</label><input id="id-new" type="text" class="input" placeholder="영문·숫자 4자 이상" /></div>
+            <div><label class="text-slate-400 text-xs mb-1 block">비밀번호 확인</label><input id="id-pw" type="password" class="input" /></div>
+            <button type="submit" class="btn-primary">아이디 변경</button>
+          </form>
+        </div>
+        <div class="card p-6">
+          <h2 class="text-lg font-semibold mb-4">비밀번호 변경</h2>
+          <div id="pw-msg" class="hidden mb-3"></div>
+          <form id="pw-form" class="space-y-3" style="max-width:320px">
+            <div><label class="text-slate-400 text-xs mb-1 block">현재 비밀번호</label><input id="pw-cur" type="password" class="input" /></div>
+            <div><label class="text-slate-400 text-xs mb-1 block">새 비밀번호</label><input id="pw-new" type="password" class="input" /></div>
+            <div><label class="text-slate-400 text-xs mb-1 block">새 비밀번호 확인</label><input id="pw-cfm" type="password" class="input" /></div>
+            <button type="submit" class="btn-primary">변경하기</button>
+          </form>
+        </div>
+      </div>`;
+  }
+  function bindProfile() {
+    // 아이디 변경
+    const idForm = document.getElementById('id-form');
+    if (idForm) {
+      idForm.addEventListener('submit', e => {
+        e.preventDefault();
+        const newId = document.getElementById('id-new').value.trim();
+        const pw = document.getElementById('id-pw').value;
+        if (pw !== CU.password) return msg('id-msg','err','비밀번호가 맞지 않습니다.');
+        if (newId.length < 4) return msg('id-msg','err','아이디는 4자 이상이어야 합니다.');
+        if (!/^[a-zA-Z0-9_]+$/.test(newId)) return msg('id-msg','err','영문·숫자·밑줄만 사용 가능합니다.');
+        const users = DB.get('users')||[];
+        if (users.some(u=>u.username===newId && u.id!==CU.id)) return msg('id-msg','err','이미 사용 중인 아이디입니다.');
+        const ui = users.findIndex(u=>u.id===CU.id);
+        users[ui].username = newId;
+        DB.set('users', users);
+        syncUser();
+        document.getElementById('id-new').value='';
+        document.getElementById('id-pw').value='';
+        msg('id-msg','ok','아이디가 변경되었습니다. 다음 로그인부터 새 아이디를 사용하세요.');
+      });
+    }
+    // 비밀번호 변경
+    const form = document.getElementById('pw-form');
+    if (!form) return;
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const cur = document.getElementById('pw-cur').value;
+      const nw = document.getElementById('pw-new').value;
+      const cf = document.getElementById('pw-cfm').value;
+      if (cur !== CU.password) return msg('pw-msg','err','현재 비밀번호가 다릅니다.');
+      if (nw !== cf) return msg('pw-msg','err','새 비밀번호가 일치하지 않습니다.');
+      if (nw.length < 4) return msg('pw-msg','err','4자 이상 입력하세요.');
+      const users = DB.get('users')||[];
+      const ui = users.findIndex(u=>u.id===CU.id);
+      users[ui].password = nw;
+      DB.set('users', users);
+      syncUser();
+      msg('pw-msg','ok','비밀번호가 변경되었습니다.');
+    });
+  }
+
+  // ============================
+  // ADMIN DASHBOARD
+  // ============================
+  function adminDashPage() {
+    const users = DB.get('users')||[];
+    const games = DB.get('games')||[];
+    const entries = DB.get('entries')||[];
+    const players = users.filter(u=>u.role==='player');
+    const openGames = games.filter(g=>g.status==='open');
+    const totalSeed = players.reduce((s,p)=>s+p.seedBalance,0);
+    const recent = [...games].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,6);
+    const rows = recent.map(g => {
+      const cnt = [...new Set((entries.filter(e=>e.gameId===g.id)).map(e=>e.userId))].length;
+      return `<tr>
+        <td><a href="#/admin/games/${g.id}" class="text-green-400 hover:underline">${g.type} ${g.sessionNo}차</a></td>
+        <td class="text-slate-400">${g.date}</td>
+        <td>${cnt}/${g.maxEntries}</td>
+        <td>${statusBadge(g.status)}</td>
+        <td><a href="#/admin/games/${g.id}" class="text-xs text-slate-400 hover:text-white">관리 →</a></td>
+      </tr>`;
+    }).join('');
+    return `
+      <div class="space-y-6">
+        <div class="flex items-center justify-between">
+          <h1 class="text-2xl font-bold">관리자 대시보드</h1>
+          <button onclick="showCreateGame()" class="btn-primary">+ 게임 생성</button>
+        </div>
+        <div class="grid grid-cols-4 gap-4">
+          <div class="stat-card"><p class="text-slate-400 text-xs">총 플레이어</p><p class="text-2xl font-bold mt-1">${players.length}</p></div>
+          <div class="stat-card"><p class="text-slate-400 text-xs">모집중 게임</p><p class="text-2xl font-bold text-green-400 mt-1">${openGames.length}</p></div>
+          <div class="stat-card"><p class="text-slate-400 text-xs">총 시드 잔액</p><p class="text-xl font-bold text-yellow-400 mt-1">${fmtMoney(totalSeed)}</p></div>
+          <div class="stat-card"><p class="text-slate-400 text-xs">총 엔트리</p><p class="text-2xl font-bold mt-1">${entries.length}</p></div>
+        </div>
+        <div>
+          <h2 class="text-lg font-semibold mb-3">최근 게임</h2>
+          <div class="card overflow-hidden">
+            <table><thead><tr><th>게임</th><th>날짜</th><th>참가</th><th>상태</th><th></th></tr></thead>
+            <tbody>${rows}</tbody></table>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // ============================
+  // ADMIN GAMES
+  // ============================
+  function adminGamesPage() {
+    const games = (DB.get('games')||[]).sort((a,b)=>b.date.localeCompare(a.date));
+    const entries = DB.get('entries')||[];
+    const rows = games.map(g => {
+      const ge = entries.filter(e=>e.gameId===g.id);
+      const cnt = [...new Set(ge.map(e=>e.userId))].length;
+      return `<tr>
+        <td><a href="#/admin/games/${g.id}" class="text-green-400 hover:underline font-medium">${g.type} ${g.sessionNo}차</a></td>
+        <td class="text-slate-400">${g.date}</td>
+        <td>${g.duration}h</td>
+        <td>${fmtMoney(g.buyInAmount)}</td>
+        <td>${cnt}/${g.maxEntries}</td>
+        <td class="text-xs">${g.awardType==='chop'?'찹':'순위'}</td>
+        <td>${statusBadge(g.status)}</td>
+        <td><a href="#/admin/games/${g.id}" class="text-xs text-slate-400 hover:text-white">관리 →</a></td>
+      </tr>`;
+    }).join('');
+    return `
+      <div class="space-y-6">
+        <div class="flex items-center justify-between">
+          <h1 class="text-2xl font-bold">게임 관리</h1>
+          <button onclick="showCreateGame()" class="btn-primary">+ 게임 생성</button>
+        </div>
+        <div class="card overflow-hidden">
+          <table><thead><tr><th>게임</th><th>날짜</th><th>시간</th><th>바인</th><th>참가</th><th>수상</th><th>상태</th><th></th></tr></thead>
+          <tbody>${rows||'<tr><td colspan="8" class="text-center text-slate-500 py-8">게임 없음</td></tr>'}</tbody></table>
+        </div>
+      </div>`;
+  }
+
+  window.showCreateGame = function() {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('modal-root').innerHTML = `
+      <div class="modal-overlay" id="mo">
+        <div class="modal" style="max-width:520px">
+          <h3 class="text-lg font-bold mb-4">새 게임 생성</h3>
+          <form id="cgf" class="space-y-3">
+            <div class="grid grid-cols-2 gap-3">
+              <div><label class="text-slate-400 text-xs mb-1 block">날짜</label><input id="gd" type="date" class="input" value="${today}" /></div>
+              <div><label class="text-slate-400 text-xs mb-1 block">게임 유형</label>
+                <select id="gt" class="input"><option>정기</option><option>깐부</option><option>파인애플</option></select></div>
+              <div><label class="text-slate-400 text-xs mb-1 block">차수</label><input id="gs" type="number" class="input" value="1" min="1" /></div>
+              <div><label class="text-slate-400 text-xs mb-1 block">게임 시간(h)</label><input id="gdu" type="number" class="input" value="4" min="1" /></div>
+              <div><label class="text-slate-400 text-xs mb-1 block">최대 엔트리</label><input id="gme" type="number" class="input" value="20" min="1" /></div>
+              <div><label class="text-slate-400 text-xs mb-1 block">바인 금액</label><input id="gba" type="number" class="input" value="3000" step="1000" /></div>
+              <div class="col-span-2"><label class="text-slate-400 text-xs mb-1 block">수상 방식</label>
+                <select id="gat" class="input"><option value="rank">순위 (1등 50%, 2등 30%, 3등 20%)</option><option value="chop">찹 (1/N 균등)</option></select></div>
+            </div>
+            <div class="flex gap-3 pt-2">
+              <button type="submit" class="btn-primary flex-1">생성</button>
+              <button type="button" onclick="closeM()" class="btn-secondary flex-1">취소</button>
+            </div>
+          </form>
+        </div>
+      </div>`;
+    document.getElementById('mo').addEventListener('click', e => { if(e.target.id==='mo') closeM(); });
+    document.getElementById('cgf').addEventListener('submit', e => {
+      e.preventDefault();
+      const games = DB.get('games')||[];
+      const newGame = {
+        id: uuid(), date: document.getElementById('gd').value, type: document.getElementById('gt').value,
+        sessionNo: +document.getElementById('gs').value, duration: +document.getElementById('gdu').value,
+        maxEntries: +document.getElementById('gme').value, buyInAmount: +document.getElementById('gba').value,
+        awardType: document.getElementById('gat').value, status: 'open', createdAt: new Date().toISOString()
+      };
+      games.push(newGame);
+      DB.set('games', games);
+      closeM();
+      go('/admin/games/' + newGame.id);
+    });
+  };
+
+  // ============================
+  // ADMIN GAME DETAIL
+  // ============================
+  function adminGameDetailPage(gameId) {
+    const game = (DB.get('games')||[]).find(g=>g.id===gameId);
+    if (!game) return '<p class="text-red-400 p-6">게임을 찾을 수 없습니다.</p>';
+    const entries = DB.get('entries')||[];
+    const awards = DB.get('awards')||[];
+    const users = DB.get('users')||[];
+    const ge = entries.filter(e=>e.gameId===gameId);
+    const ga = awards.filter(a=>a.gameId===gameId);
+    const participants = [...new Set(ge.map(e=>e.userId))];
+    const totalPrize = ge.length * game.buyInAmount;
+
+    const pRows = participants.map(uid => {
+      const user = users.find(u=>u.id===uid);
+      const ue = ge.filter(e=>e.userId===uid);
+      const seed = ue.filter(e=>e.payment==='seed').reduce((s,e)=>s+e.amount,0);
+      const cash = ue.filter(e=>e.payment==='cash').reduce((s,e)=>s+e.amount,0);
+      return `<tr>
+        <td class="font-medium">${user?.name||uid}</td>
+        <td>${ue.filter(e=>e.type==='buyin').length}</td>
+        <td>${ue.filter(e=>e.type==='rebuy').length}</td>
+        <td class="text-blue-400 font-mono text-sm">${seed?fmtMoney(seed):'-'}</td>
+        <td class="text-orange-400 font-mono text-sm">${cash?fmtMoney(cash):'-'}</td>
+        <td class="font-mono font-medium">${fmtMoney(seed+cash)}</td>
+      </tr>`;
+    }).join('');
+
+    // Award section
+    let awardSection = '';
+    if (game.status === 'closed') {
+      if (ga.length > 0) {
+        const aRows = ga.sort((a,b)=>(a.rank||99)-(b.rank||99)).map(a => {
+          const user = users.find(u=>u.id===a.userId);
+          return `<div class="flex items-center justify-between p-3 rounded-lg mb-2" style="background:#0f172a">
+            <span class="font-medium">${a.rank?`${a.rank}등`:'찹'}: ${user?.name}</span>
+            <span>DPI <span class="text-yellow-400 font-bold">${a.dpiScore.toFixed(2)}</span> · ${fmtMoney(a.prizeAmount)}</span>
+          </div>`;
+        }).join('');
+        awardSection = `<div class="card p-6"><h2 class="text-lg font-semibold mb-3">✅ 수상 결과</h2>${aRows}</div>`;
+      } else {
+        const pOpts = participants.map(uid => {
+          const user = users.find(u=>u.id===uid);
+          return `<option value="${uid}">${user?.name||uid}</option>`;
+        }).join('');
+        const chopInputs = participants.map(uid => {
+          const user = users.find(u=>u.id===uid);
+          return `<label class="flex items-center gap-2 p-2 rounded cursor-pointer hover:bg-slate-800">
+            <input type="checkbox" name="cw" value="${uid}" class="w-4 h-4 accent-green-500" />
+            <span>${user?.name||uid}</span>
+          </label>`;
+        }).join('');
+        awardSection = game.awardType === 'chop'
+          ? `<div class="card p-6"><h2 class="text-lg font-semibold mb-4">수상 결과 입력 — 찹</h2>
+              <p class="text-slate-400 text-sm mb-3">수상자를 모두 선택하면 상금이 균등 분배됩니다.</p>
+              <div class="space-y-1 mb-4">${chopInputs}</div>
+              <button onclick="saveAwards('${gameId}','chop')" class="btn-primary">저장</button></div>`
+          : `<div class="card p-6"><h2 class="text-lg font-semibold mb-4">수상 결과 입력 — 순위</h2>
+              <div class="space-y-3 mb-4" style="max-width:360px">
+                <div class="flex items-center gap-3"><span class="text-yellow-400 font-bold w-10">1등</span><select id="r1" class="input"><option value="">선택</option>${pOpts}</select></div>
+                <div class="flex items-center gap-3"><span class="text-slate-300 font-bold w-10">2등</span><select id="r2" class="input"><option value="">선택</option>${pOpts}</select></div>
+                <div class="flex items-center gap-3"><span class="text-orange-400 font-bold w-10">3등</span><select id="r3" class="input"><option value="">선택</option>${pOpts}</select></div>
+              </div>
+              <button onclick="saveAwards('${gameId}','rank')" class="btn-primary">저장</button></div>`;
+      }
+    }
+
+    return `
+      <div class="space-y-6">
+        <a href="#/admin/games" class="text-slate-400 hover:text-white text-sm">← 게임 목록</a>
+        <div class="card p-6">
+          <div class="flex items-start justify-between flex-wrap gap-4">
+            <div>
+              <div class="flex items-center gap-3 mb-3"><h1 class="text-2xl font-bold">${game.type} ${game.sessionNo}차</h1>${statusBadge(game.status)}</div>
+              <div class="grid grid-cols-3 gap-x-10 gap-y-2 text-sm">
+                <div><span class="text-slate-400">날짜</span> <span class="ml-2">${game.date}</span></div>
+                <div><span class="text-slate-400">시간</span> <span class="ml-2">${game.duration}h</span></div>
+                <div><span class="text-slate-400">바인</span> <span class="ml-2 text-green-400 font-semibold">${fmtMoney(game.buyInAmount)}</span></div>
+                <div><span class="text-slate-400">참가</span> <span class="ml-2">${participants.length}/${game.maxEntries}명</span></div>
+                <div><span class="text-slate-400">엔트리</span> <span class="ml-2">${ge.length}개</span></div>
+                <div><span class="text-slate-400">상금풀</span> <span class="ml-2 text-yellow-400 font-semibold">${fmtMoney(totalPrize)}</span></div>
+              </div>
+            </div>
+            <div class="flex gap-2 flex-wrap">
+              ${game.status==='open' ? `<button onclick="setStatus('${gameId}','active')" class="btn-secondary btn-sm">▶ 진행 시작</button>` : ''}
+              ${game.status==='open' ? `<button onclick="setStatus('${gameId}','closed')" class="btn-danger btn-sm">종료</button>` : ''}
+              ${game.status==='active' ? `<button onclick="setStatus('${gameId}','closed')" class="btn-danger btn-sm">🏁 게임 종료</button>` : ''}
+            </div>
+          </div>
+        </div>
+        ${participants.length ? `
+        <div>
+          <h2 class="text-lg font-semibold mb-3">참가자 목록</h2>
+          <div class="card overflow-hidden">
+            <table><thead><tr><th>이름</th><th>바인</th><th>리바인</th><th>시드</th><th>현금</th><th>합계</th></tr></thead>
+            <tbody>${pRows}</tbody></table>
+          </div>
+        </div>` : ''}
+        ${awardSection}
+      </div>`;
+  }
+
+  function bindAdminGameDetail(gameId) {}
+
+  window.setStatus = function(gameId, status) {
+    const games = DB.get('games')||[];
+    const i = games.findIndex(g=>g.id===gameId);
+    if (i>=0) { games[i].status=status; DB.set('games',games); render(); }
+  };
+
+  window.saveAwards = function(gameId, type) {
+    const game = (DB.get('games')||[]).find(g=>g.id===gameId);
+    const entries = DB.get('entries')||[];
+    const awards = DB.get('awards')||[];
+    const ge = entries.filter(e=>e.gameId===gameId);
+    // 공식: 0.3 × 총엔트리 × 게임시간 × 비율 / 개인엔트리수
+    const totalEntryScore = ge.length * game.duration * 0.3;
+    const totalPrize = ge.length * game.buyInAmount;
+
+    if (type==='chop') {
+      const winners = [...document.querySelectorAll('input[name="cw"]:checked')].map(el=>el.value);
+      if (!winners.length) { alert('수상자를 선택하세요.'); return; }
+      const prize = Math.floor(totalPrize / winners.length);
+      winners.forEach(uid => {
+        const playerEntries = ge.filter(e=>e.userId===uid).length || 1;
+        const dpi = Math.round((totalEntryScore/winners.length/playerEntries)*100)/100;
+        awards.push({ id:uuid(), gameId, userId:uid, rank:null, dpiScore:dpi, prizeAmount:prize, createdAt:new Date().toISOString() });
+      });
+    } else {
+      const ranks = [
+        document.getElementById('r1')?.value,
+        document.getElementById('r2')?.value,
+        document.getElementById('r3')?.value
+      ].filter(Boolean);
+      if (!ranks[0]) { alert('1등을 선택하세요.'); return; }
+      const ratios = [0.5, 0.3, 0.2];
+      ranks.forEach((uid, i) => {
+        const playerEntries = ge.filter(e=>e.userId===uid).length || 1;
+        const dpi = Math.round((totalEntryScore*ratios[i]/playerEntries)*100)/100;
+        awards.push({ id:uuid(), gameId, userId:uid, rank:i+1, dpiScore:dpi, prizeAmount:Math.floor(totalPrize*ratios[i]), createdAt:new Date().toISOString() });
+      });
+    }
+    DB.set('awards', awards);
+    render();
+  };
+
+  // ============================
+  // ADMIN PLAYERS
+  // ============================
+  function adminPlayersPage() {
+    const users = (DB.get('users')||[]).filter(u=>u.role==='player');
+    const entries = DB.get('entries')||[];
+    const awards = DB.get('awards')||[];
+    const rows = users.map(u => {
+      const gamesPlayed = [...new Set((entries.filter(e=>e.userId===u.id)).map(e=>e.gameId))].length;
+      const wins = awards.filter(a=>a.userId===u.id).length;
+      return `<tr>
+        <td class="font-medium">${u.name}</td>
+        <td class="text-slate-400">@${u.username}</td>
+        <td class="text-green-400 font-bold font-mono">${fmtMoney(u.seedBalance)}</td>
+        <td>${gamesPlayed}회</td>
+        <td>${wins}회</td>
+        <td><a href="#/admin/players/${u.id}" class="text-green-400 text-xs hover:underline">관리 →</a></td>
+      </tr>`;
+    }).join('');
+    return `
+      <div class="space-y-6">
+        <div class="flex items-center justify-between">
+          <h1 class="text-2xl font-bold">플레이어 관리</h1>
+          <button onclick="showCreatePlayer()" class="btn-primary">+ 플레이어 추가</button>
+        </div>
+        <div class="card overflow-hidden">
+          <table><thead><tr><th>이름</th><th>아이디</th><th>시드 잔액</th><th>참여</th><th>우승횟수</th><th></th></tr></thead>
+          <tbody>${rows||'<tr><td colspan="6" class="text-center text-slate-500 py-8">플레이어 없음</td></tr>'}</tbody></table>
+        </div>
+      </div>`;
+  }
+
+  window.showCreatePlayer = function() {
+    document.getElementById('modal-root').innerHTML = `
+      <div class="modal-overlay" id="mo">
+        <div class="modal">
+          <h3 class="text-lg font-bold mb-4">플레이어 계정 생성</h3>
+          <div id="cpe" class="hidden mb-3"></div>
+          <form id="cpf" class="space-y-3">
+            <div><label class="text-slate-400 text-xs mb-1 block">이름</label><input id="cpn" type="text" class="input" placeholder="홍길동" /></div>
+            <div><label class="text-slate-400 text-xs mb-1 block">아이디</label><input id="cpu" type="text" class="input" placeholder="hong123" /></div>
+            <div><label class="text-slate-400 text-xs mb-1 block">초기 비밀번호</label><input id="cpp" type="text" class="input" value="1234" /></div>
+            <div class="flex gap-3 pt-2">
+              <button type="submit" class="btn-primary flex-1">생성</button>
+              <button type="button" onclick="closeM()" class="btn-secondary flex-1">취소</button>
+            </div>
+          </form>
+        </div>
+      </div>`;
+    document.getElementById('mo').addEventListener('click', e => { if(e.target.id==='mo') closeM(); });
+    document.getElementById('cpf').addEventListener('submit', e => {
+      e.preventDefault();
+      const name = document.getElementById('cpn').value.trim();
+      const username = document.getElementById('cpu').value.trim();
+      const password = document.getElementById('cpp').value;
+      if (!name||!username||!password) return msg('cpe','err','모든 필드를 입력하세요.');
+      const users = DB.get('users')||[];
+      if (users.find(u=>u.username===username)) return msg('cpe','err','이미 존재하는 아이디입니다.');
+      users.push({ id:uuid(), username, name, role:'player', password, seedBalance:0, createdAt:new Date().toISOString() });
+      DB.set('users', users);
+      closeM();
+      render();
+    });
+  };
+
+  // ============================
+  // ADMIN PLAYER DETAIL
+  // ============================
+  function adminPlayerDetail(playerId) {
+    const users = DB.get('users')||[];
+    const entries = DB.get('entries')||[];
+    const awards = DB.get('awards')||[];
+    const txns = DB.get('seedTxns')||[];
+    const player = users.find(u=>u.id===playerId);
+    if (!player) return '<p class="text-red-400 p-6">플레이어를 찾을 수 없습니다.</p>';
+    const gamesPlayed = [...new Set((entries.filter(e=>e.userId===playerId)).map(e=>e.gameId))].length;
+    const ua = awards.filter(a=>a.userId===playerId);
+    const rawDPI = ua.reduce((s,a)=>s+(a.dpiScore||0),0);
+    const ue2 = entries.filter(e=>e.userId===playerId);
+    const totalBuyins2 = ue2.filter(e=>e.type==='buyin').length;
+    const totalDPI = rawDPI * Math.min(1, totalBuyins2/10) + totalBuyins2*0.2 + (player.dealer||0)*0.5;
+    const pTxns = txns.filter(t=>t.userId===playerId).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
+    const txnRows = pTxns.map(t => `<tr>
+      <td class="text-slate-400 text-xs">${fmtDT(t.createdAt)}</td>
+      <td>${{charge:'<span class="text-blue-400">충전</span>',use:'<span class="text-orange-400">사용</span>',refund:'<span class="text-green-400">환불</span>'}[t.type]||t.type}</td>
+      <td class="font-mono ${t.amount>0?'text-blue-400':'text-orange-400'}">${t.amount>0?'+':''}${fmtMoney(t.amount)}</td>
+      <td class="font-mono">${fmtMoney(t.balanceAfter)}</td>
+      <td class="text-slate-400 text-sm">${t.note||'-'}</td>
+    </tr>`).join('');
+    return `
+      <div class="space-y-6">
+        <a href="#/admin/players" class="text-slate-400 hover:text-white text-sm">← 플레이어 목록</a>
+        <div class="card p-6">
+          <div class="flex items-center gap-4 mb-5">
+            <div class="w-14 h-14 rounded-full flex items-center justify-center text-xl font-bold text-green-400" style="background:#14532d33">${player.name[0]}</div>
+            <div>
+              <h1 class="text-xl font-bold">${player.name}</h1>
+              <p class="text-slate-400 text-sm">@${player.username} · 가입 ${fmtDate(player.createdAt)}</p>
+            </div>
+          </div>
+          <div class="grid grid-cols-4 gap-4">
+            <div class="stat-card"><p class="text-slate-400 text-xs">시드 잔액</p><p class="text-xl font-bold text-green-400 mt-1">${fmtMoney(player.seedBalance)}</p></div>
+            <div class="stat-card"><p class="text-slate-400 text-xs">참여 게임</p><p class="text-xl font-bold mt-1">${gamesPlayed}회</p></div>
+            <div class="stat-card"><p class="text-slate-400 text-xs">우승횟수</p><p class="text-xl font-bold text-yellow-400 mt-1">${ua.length}회</p></div>
+            <div class="stat-card"><p class="text-slate-400 text-xs">누적 DPI</p><p class="text-xl font-bold text-yellow-400 mt-1">${totalDPI.toFixed(1)}</p></div>
+          </div>
+        </div>
+        <div class="card p-6">
+          <h2 class="text-lg font-semibold mb-4">시드 지급 / 차감</h2>
+          <div id="sm" class="hidden mb-3"></div>
+          <form id="sf" class="space-y-3">
+            <div class="flex gap-3 flex-wrap items-end">
+              <div style="min-width:160px">
+                <label class="text-slate-400 text-xs mb-1 block">금액 (양수=지급, 음수=차감)</label>
+                <input id="sa" type="number" class="input" placeholder="예: 3000 또는 -3000" step="3000" />
+              </div>
+              <div class="flex-1" style="min-width:220px">
+                <label class="text-slate-400 text-xs mb-1 block">사유</label>
+                <div class="flex gap-2 mb-2">
+                  <button type="button" id="note-game-btn" onclick="toggleNoteMode('game')" class="text-xs px-3 py-1 rounded-full border border-green-600 text-green-400 bg-green-900/30">🎮 게임 선택</button>
+                  <button type="button" id="note-text-btn" onclick="toggleNoteMode('text')" class="text-xs px-3 py-1 rounded-full border border-slate-600 text-slate-400">✏️ 직접 입력</button>
+                </div>
+                <div id="note-game-wrap">
+                  <select id="sn-game" class="input">
+                    <option value="">-- 게임을 선택하세요 --</option>
+                    ${(DB.get('games')||[]).sort((a,b)=>b.date.localeCompare(a.date)).map(g=>`<option value="${g.type} ${g.sessionNo}차 (${g.date})">${g.type} ${g.sessionNo}차 · ${g.date}</option>`).join('')}
+                  </select>
+                </div>
+                <div id="note-text-wrap" class="hidden">
+                  <input id="sn-text" type="text" class="input" placeholder="우승 상금, 보너스, 회수 등" />
+                </div>
+              </div>
+              <button type="submit" class="btn-primary whitespace-nowrap">처리</button>
+            </div>
+          </form>
+        </div>
+        <div class="card p-6">
+          <h2 class="text-lg font-semibold mb-1">딜러 DPI 보상</h2>
+          <p class="text-slate-400 text-xs mb-4">딜러 참여 1회 = +0.5 DPI · 현재 딜러 누계: <span class="text-yellow-400 font-bold">${player.dealer||0}회</span> (DPI +${((player.dealer||0)*0.5).toFixed(1)})</p>
+          <div id="dm" class="hidden mb-3"></div>
+          <form id="df" class="space-y-3">
+            <div class="flex gap-3 flex-wrap items-end">
+              <div>
+                <label class="text-slate-400 text-xs mb-1 block">딜러 횟수 추가/차감</label>
+                <input id="da" type="number" class="input" placeholder="예: 1 또는 -1" step="0.5" style="width:160px" />
+              </div>
+              <div class="flex-1" style="min-width:220px">
+                <label class="text-slate-400 text-xs mb-1 block">사유 (선택)</label>
+                <div class="flex gap-2 mb-2">
+                  <button type="button" id="dnote-game-btn" onclick="toggleDNoteMode('game')" class="text-xs px-3 py-1 rounded-full border border-green-600 text-green-400 bg-green-900/30">🎮 게임 선택</button>
+                  <button type="button" id="dnote-text-btn" onclick="toggleDNoteMode('text')" class="text-xs px-3 py-1 rounded-full border border-slate-600 text-slate-400">✏️ 직접 입력</button>
+                </div>
+                <div id="dnote-game-wrap">
+                  <select id="dn-game" class="input">
+                    <option value="">-- 게임을 선택하세요 --</option>
+                    ${(DB.get('games')||[]).sort((a,b)=>b.date.localeCompare(a.date)).map(g=>`<option value="${g.type} ${g.sessionNo}차 딜러 (${g.date})">${g.type} ${g.sessionNo}차 · ${g.date}</option>`).join('')}
+                  </select>
+                </div>
+                <div id="dnote-text-wrap" class="hidden">
+                  <input id="dn-text" type="text" class="input" placeholder="예: 정기 10차 딜러" />
+                </div>
+              </div>
+              <button type="submit" class="btn-primary whitespace-nowrap">DPI 적용</button>
+            </div>
+          </form>
+        </div>
+        <div>
+          <h2 class="text-lg font-semibold mb-3">시드 거래 내역</h2>
+          <div class="card overflow-hidden">
+            <table><thead><tr><th>일시</th><th>구분</th><th>금액</th><th>잔액</th><th>내용</th></tr></thead>
+            <tbody>${txnRows||'<tr><td colspan="5" class="text-center text-slate-500 py-8">내역 없음</td></tr>'}</tbody></table>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // 딜러 사유 입력 모드 토글
+  window.toggleDNoteMode = function(mode) {
+    const gameWrap = document.getElementById('dnote-game-wrap');
+    const textWrap = document.getElementById('dnote-text-wrap');
+    const gameBtn  = document.getElementById('dnote-game-btn');
+    const textBtn  = document.getElementById('dnote-text-btn');
+    if (!gameWrap) return;
+    if (mode === 'game') {
+      gameWrap.classList.remove('hidden'); textWrap.classList.add('hidden');
+      gameBtn.classList.add('border-green-600','text-green-400','bg-green-900/30');
+      gameBtn.classList.remove('border-slate-600','text-slate-400');
+      textBtn.classList.add('border-slate-600','text-slate-400');
+      textBtn.classList.remove('border-green-600','text-green-400','bg-green-900/30');
+    } else {
+      textWrap.classList.remove('hidden'); gameWrap.classList.add('hidden');
+      textBtn.classList.add('border-green-600','text-green-400','bg-green-900/30');
+      textBtn.classList.remove('border-slate-600','text-slate-400');
+      gameBtn.classList.add('border-slate-600','text-slate-400');
+      gameBtn.classList.remove('border-green-600','text-green-400','bg-green-900/30');
+    }
+  };
+
+  // 시드 사유 입력 모드 토글
+  window.toggleNoteMode = function(mode) {
+    const gameWrap = document.getElementById('note-game-wrap');
+    const textWrap = document.getElementById('note-text-wrap');
+    const gameBtn  = document.getElementById('note-game-btn');
+    const textBtn  = document.getElementById('note-text-btn');
+    if (!gameWrap) return;
+    if (mode === 'game') {
+      gameWrap.classList.remove('hidden'); textWrap.classList.add('hidden');
+      gameBtn.classList.add('border-green-600','text-green-400','bg-green-900/30');
+      gameBtn.classList.remove('border-slate-600','text-slate-400');
+      textBtn.classList.add('border-slate-600','text-slate-400');
+      textBtn.classList.remove('border-green-600','text-green-400','bg-green-900/30');
+    } else {
+      textWrap.classList.remove('hidden'); gameWrap.classList.add('hidden');
+      textBtn.classList.add('border-green-600','text-green-400','bg-green-900/30');
+      textBtn.classList.remove('border-slate-600','text-slate-400');
+      gameBtn.classList.add('border-slate-600','text-slate-400');
+      gameBtn.classList.remove('border-green-600','text-green-400','bg-green-900/30');
+    }
+  };
+
+  function bindPlayerSeed(playerId) {
+    const form = document.getElementById('sf');
+    if (!form) return;
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const amount = parseInt(document.getElementById('sa').value);
+      // 사유: 게임 선택 vs 직접 입력
+      const gameNote = document.getElementById('sn-game');
+      const textNote = document.getElementById('sn-text');
+      const noteGameWrap = document.getElementById('note-game-wrap');
+      let note = '';
+      if (noteGameWrap && !noteGameWrap.classList.contains('hidden')) {
+        note = gameNote ? gameNote.value : '';
+      } else {
+        note = textNote ? textNote.value.trim() : '';
+      }
+      if (!amount || isNaN(amount)) return msg('sm','err','금액을 입력하세요.');
+      const users = DB.get('users')||[];
+      const ui = users.findIndex(u=>u.id===playerId);
+      const newBal = users[ui].seedBalance + amount;
+      if (newBal < 0) return msg('sm','err','잔액이 부족합니다.');
+      users[ui].seedBalance = newBal;
+      DB.set('users', users);
+      const txns = DB.get('seedTxns')||[];
+      txns.push({ id:uuid(), userId:playerId, type:amount>0?'charge':'use', amount, balanceAfter:newBal, note:note||(amount>0?'관리자 지급':'관리자 차감'), entryId:null, createdAt:new Date().toISOString() });
+      DB.set('seedTxns', txns);
+      if (CU.id === playerId) syncUser();
+      render();
+    });
+
+    // 딜러 DPI 처리
+    const dealerForm = document.getElementById('df');
+    if (!dealerForm) return;
+    dealerForm.addEventListener('submit', e => {
+      e.preventDefault();
+      const delta = parseFloat(document.getElementById('da').value);
+      const dnGameWrap = document.getElementById('dnote-game-wrap');
+      const dnGame = document.getElementById('dn-game');
+      const dnText = document.getElementById('dn-text');
+      let note = '';
+      if (dnGameWrap && !dnGameWrap.classList.contains('hidden')) {
+        note = dnGame ? dnGame.value : '';
+      } else {
+        note = dnText ? dnText.value.trim() : '';
+      }
+      note = note || '딜러 DPI 보상';
+      if (!delta || isNaN(delta)) return msg('dm','err','횟수를 입력하세요.');
+      const users = DB.get('users')||[];
+      const ui = users.findIndex(u=>u.id===playerId);
+      const prev = users[ui].dealer || 0;
+      const next = prev + delta;
+      if (next < 0) return msg('dm','err','딜러 횟수가 0 미만이 될 수 없습니다.');
+      users[ui].dealer = Math.round(next*10)/10;
+      DB.set('users', users);
+      // DPI 변경 내역을 로그로 남기기 위해 awards에 별도 기록 대신 note로 표시
+      msg('dm','ok',`딜러 횟수 ${delta>0?'+':''}${delta}회 적용 → 총 ${next}회 (DPI +${(next*0.5).toFixed(1)})`);
+      setTimeout(()=>render(), 1200);
+    });
+  }
+
+  // ============================
+  // ADMIN SEED OVERVIEW
+  // ============================
+  function adminSeedPage() {
+    const users = (DB.get('users')||[]).filter(u=>u.role==='player');
+    const txns = DB.get('seedTxns')||[];
+    const totalSeed = users.reduce((s,u)=>s+u.seedBalance,0);
+    const totalCharged = txns.filter(t=>t.type==='charge').reduce((s,t)=>s+t.amount,0);
+    const rows = users.sort((a,b)=>b.seedBalance-a.seedBalance).map(u => {
+      const ut = txns.filter(t=>t.userId===u.id);
+      const charged = ut.filter(t=>t.type==='charge').reduce((s,t)=>s+t.amount,0);
+      const used = ut.filter(t=>t.type==='use').reduce((s,t)=>s+Math.abs(t.amount),0);
+      return `<tr>
+        <td><a href="#/admin/players/${u.id}" class="text-green-400 hover:underline font-medium">${u.name}</a></td>
+        <td class="text-slate-400">@${u.username}</td>
+        <td class="text-green-400 font-bold font-mono">${fmtMoney(u.seedBalance)}</td>
+        <td class="text-blue-400 font-mono">${fmtMoney(charged)}</td>
+        <td class="text-orange-400 font-mono">${fmtMoney(used)}</td>
+      </tr>`;
+    }).join('');
+    return `
+      <div class="space-y-6">
+        <h1 class="text-2xl font-bold">💰 시드 현황</h1>
+        <div class="grid grid-cols-3 gap-4">
+          <div class="stat-card"><p class="text-slate-400 text-xs">전체 시드 잔액</p><p class="text-2xl font-bold text-yellow-400 mt-1">${fmtMoney(totalSeed)}</p></div>
+          <div class="stat-card"><p class="text-slate-400 text-xs">총 충전 누계</p><p class="text-xl font-bold text-blue-400 mt-1">${fmtMoney(totalCharged)}</p></div>
+          <div class="stat-card"><p class="text-slate-400 text-xs">플레이어 수</p><p class="text-2xl font-bold mt-1">${users.length}명</p></div>
+        </div>
+        <div class="card overflow-hidden">
+          <table><thead><tr><th>이름</th><th>아이디</th><th>현재 잔액</th><th>총 충전</th><th>총 사용</th></tr></thead>
+          <tbody>${rows}</tbody></table>
+        </div>
+      </div>`;
+  }
+
+  // ============================
+  // BOOT
+  // ============================
+  (async function boot() {
+    // 로딩 화면
+    document.getElementById('app').innerHTML = `
+      <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px">
+        <div style="width:48px;height:48px;border:4px solid #334155;border-top-color:#4ade80;border-radius:50%;animation:spin 0.8s linear infinite"></div>
+        <p style="color:#94a3b8;font-size:14px">데이터 불러오는 중...</p>
+      </div>
+      <style>@keyframes spin{to{transform:rotate(360deg)}}</style>`;
+
+    // Supabase에서 전체 데이터 로드
+    const { data, error } = await _sb.from('app_data').select('key, value');
+    if (error) {
+      document.getElementById('app').innerHTML =
+        `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#f87171;font-size:14px;text-align:center;padding:20px">
+          ⚠️ 서버 연결 오류<br><small style="color:#94a3b8;margin-top:8px;display:block">${error.message}</small>
+        </div>`;
+      return;
+    }
+    (data || []).forEach(row => { _mem[row.key] = row.value; });
+
+    // 초기 데이터 세팅 (최초 1회)
+    initDB();
+
+    // Realtime 구독 — 다른 사용자가 데이터 바꾸면 자동 반영
+    _sb.channel('app_data')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_data' }, payload => {
+        if (payload.new && payload.new.key) {
+          _mem[payload.new.key] = payload.new.value;
+          render();
+        }
+      })
+      .subscribe();
+
+    render();
+  })();
+  </script>
+</body>
+</html>
