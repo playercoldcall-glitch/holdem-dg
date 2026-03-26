@@ -628,6 +628,40 @@
             내 참가: 바인 ${myE.filter(e=>e.type==='buyin').length}회 · 리바인 ${myE.filter(e=>e.type==='rebuy').length}회
           </div>` : ''}
         </div>
+        ${game.status === 'closed' && participants.length ? `
+        <div class="card p-5">
+          <h2 class="text-base font-semibold mb-4 text-slate-300">📊 엔트리 요약</h2>
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div class="stat-card text-center">
+              <p class="text-slate-400 text-xs mb-1">참가자</p>
+              <p class="text-2xl font-bold">${participants.length}<span class="text-sm text-slate-400 font-normal">명</span></p>
+            </div>
+            <div class="stat-card text-center">
+              <p class="text-slate-400 text-xs mb-1">바이인</p>
+              <p class="text-2xl font-bold text-blue-400">${ge.filter(e=>e.type==='buyin').length}<span class="text-sm text-slate-400 font-normal">개</span></p>
+            </div>
+            <div class="stat-card text-center">
+              <p class="text-slate-400 text-xs mb-1">리바이인</p>
+              <p class="text-2xl font-bold text-orange-400">${ge.filter(e=>e.type==='rebuy').length}<span class="text-sm text-slate-400 font-normal">개</span></p>
+            </div>
+            <div class="stat-card text-center">
+              <p class="text-slate-400 text-xs mb-1">총 엔트리</p>
+              <p class="text-2xl font-bold text-green-400">${ge.length}<span class="text-sm text-slate-400 font-normal">개</span></p>
+            </div>
+          </div>
+          <div class="mt-3 pt-3 border-t border-slate-700 flex items-center justify-between">
+            <span class="text-slate-400 text-sm">총 상금풀</span>
+            <span class="text-yellow-400 font-bold text-xl">${fmtMoney(totalPrize)}</span>
+          </div>
+          <div class="mt-2 flex items-center justify-between text-sm">
+            <span class="text-slate-400">시드 결제</span>
+            <span class="text-blue-400 font-mono">${fmtMoney(ge.filter(e=>e.payment==='seed').reduce((s,e)=>s+e.amount,0))}</span>
+          </div>
+          <div class="mt-1 flex items-center justify-between text-sm">
+            <span class="text-slate-400">현금 결제</span>
+            <span class="text-orange-400 font-mono">${fmtMoney(ge.filter(e=>e.payment==='cash').reduce((s,e)=>s+e.amount,0))}</span>
+          </div>
+        </div>` : ''}
         ${participants.length ? `
         <div>
           <h2 class="text-lg font-semibold mb-3">참가자 (${participants.length}명)</h2>
@@ -1083,6 +1117,40 @@
             </div>
           </div>
         </div>
+        ${game.status === 'closed' && participants.length ? `
+        <div class="card p-5">
+          <h2 class="text-base font-semibold mb-4 text-slate-300">📊 엔트리 요약</h2>
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div class="stat-card text-center">
+              <p class="text-slate-400 text-xs mb-1">참가자</p>
+              <p class="text-2xl font-bold">${participants.length}<span class="text-sm text-slate-400 font-normal">명</span></p>
+            </div>
+            <div class="stat-card text-center">
+              <p class="text-slate-400 text-xs mb-1">바이인</p>
+              <p class="text-2xl font-bold text-blue-400">${ge.filter(e=>e.type==='buyin').length}<span class="text-sm text-slate-400 font-normal">개</span></p>
+            </div>
+            <div class="stat-card text-center">
+              <p class="text-slate-400 text-xs mb-1">리바이인</p>
+              <p class="text-2xl font-bold text-orange-400">${ge.filter(e=>e.type==='rebuy').length}<span class="text-sm text-slate-400 font-normal">개</span></p>
+            </div>
+            <div class="stat-card text-center">
+              <p class="text-slate-400 text-xs mb-1">총 엔트리</p>
+              <p class="text-2xl font-bold text-green-400">${ge.length}<span class="text-sm text-slate-400 font-normal">개</span></p>
+            </div>
+          </div>
+          <div class="mt-3 pt-3 border-t border-slate-700 flex items-center justify-between">
+            <span class="text-slate-400 text-sm">총 상금풀</span>
+            <span class="text-yellow-400 font-bold text-xl">${fmtMoney(totalPrize)}</span>
+          </div>
+          <div class="mt-2 flex items-center justify-between text-sm">
+            <span class="text-slate-400">시드 결제</span>
+            <span class="text-blue-400 font-mono">${fmtMoney(ge.filter(e=>e.payment==='seed').reduce((s,e)=>s+e.amount,0))}</span>
+          </div>
+          <div class="mt-1 flex items-center justify-between text-sm">
+            <span class="text-slate-400">현금 결제</span>
+            <span class="text-orange-400 font-mono">${fmtMoney(ge.filter(e=>e.payment==='cash').reduce((s,e)=>s+e.amount,0))}</span>
+          </div>
+        </div>` : ''}
         ${participants.length ? `
         <div>
           <h2 class="text-lg font-semibold mb-3">참가자 목록</h2>
