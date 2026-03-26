@@ -783,8 +783,15 @@
     const txns = DB.get('seedTxns')||[];
     const entries = DB.get('entries')||[];
     const awards = DB.get('awards')||[];
-    const gamesPlayed = [...new Set(entries.filter(e=>e.userId===CU.id).map(e=>e.gameId))].length;
-    const totalDPI = awards.filter(a=>a.userId===CU.id).reduce((s,a)=>s+(a.dpiScore||0),0);
+    const users = DB.get('users')||[];
+    const me = users.find(u=>u.id===CU.id)||CU;
+    const myEntries = entries.filter(e=>e.userId===CU.id);
+    const myAwards = awards.filter(a=>a.userId===CU.id);
+    const gamesPlayed = [...new Set(myEntries.map(e=>e.gameId))].length;
+    const totalBuyins = myEntries.filter(e=>e.type==='buyin').length;
+    const rawDPI = myAwards.reduce((s,a)=>s+(a.dpiScore||0),0);
+    const dealer = me.dealer||0;
+    const totalDPI = rawDPI * Math.min(1, totalBuyins/10) + totalBuyins*0.2 + dealer*0.5;
     return `
       <div class="space-y-6">
         <h1 class="text-2xl font-bold">내 정보</h1>
