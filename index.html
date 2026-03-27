@@ -488,7 +488,7 @@
   function dashboardPage() {
     const games = DB.get('games') || [];
     const entries = DB.get('entries') || [];
-    const openGames = games.filter(g => g.status === 'open');
+    const activeGames = games.filter(g => g.status === 'open' || g.status === 'active');
     const myEntries = entries.filter(e => e.userId === CU.id);
     const myGameIds = [...new Set(myEntries.map(e => e.gameId))];
     const recentGames = myGameIds.map(gid => {
@@ -497,23 +497,24 @@
       return { game, buyins: ge.filter(e=>e.type==='buyin').length, rebuys: ge.filter(e=>e.type==='rebuy').length, ge };
     }).filter(x => x.game).slice(0, 5);
 
-    const openCards = openGames.length ? openGames.map(g => {
+    const openCards = activeGames.length ? activeGames.map(g => {
       const cnt = [...new Set((entries.filter(e=>e.gameId===g.id)).map(e=>e.userId))].length;
       const joined = entries.some(e=>e.gameId===g.id && e.userId===CU.id);
+      const isActive = g.status === 'active';
       return `
         <div class="card p-4 flex items-center justify-between">
           <div>
             <div class="flex items-center gap-2 mb-1">
               <span class="font-semibold">${g.type} ${g.sessionNo}차</span>
-              <span class="badge-open">모집중</span>
+              ${statusBadge(g.status)}
               <span class="text-xs text-slate-500">${g.awardType==='chop'?'찹':'순위'}</span>
             </div>
             <div class="text-slate-400 text-sm">${g.date} · ${g.duration}시간 · 바인 ${fmtMoney(g.buyInAmount)}</div>
             <div class="text-slate-500 text-xs">${cnt}/${g.maxEntries}명 참가</div>
           </div>
-          <a href="#/games/${g.id}" class="btn-primary btn-sm">${joined?'🔄 리바인':'✋ 참가'}</a>
+          <a href="#/games/${g.id}" class="btn-primary btn-sm">${isActive ? (joined ? '🔄 리바인' : '✋ 참가') : (joined?'🔄 리바인':'✋ 참가')}</a>
         </div>`;
-    }).join('') : `<div class="card p-8 text-center text-slate-400">현재 모집중인 게임이 없습니다.</div>`;
+    }).join('') : `<div class="card p-8 text-center text-slate-400">현재 진행중인 게임이 없습니다.</div>`;
 
     const recentRows = recentGames.map(({game,buyins,rebuys,ge}) => {
       const seed = ge.filter(e=>e.payment==='seed').reduce((s,e)=>s+e.amount,0);
@@ -544,7 +545,7 @@
           <a href="#/seed" class="text-green-400 text-sm mt-3 inline-block hover:underline">시드 내역 보기 →</a>
         </div>
         <div>
-          <h2 class="text-lg font-semibold mb-3">모집중인 게임</h2>
+          <h2 class="text-lg font-semibold mb-3">참가 가능한 게임</h2>
           <div class="space-y-3">${openCards}</div>
         </div>
         ${recentGames.length ? `
@@ -640,7 +641,7 @@
                 <div><span class="text-slate-400">상금풀</span> <span class="ml-2 text-yellow-400 font-semibold">${fmtMoney(totalPrize)}</span></div>
               </div>
             </div>
-            ${game.status==='open' ? `<button onclick="showBuyinModal('${gameId}')" class="btn-primary">${myE.length?'🔄 리바인':'✋ 참가하기'}</button>` : ''}
+            ${(game.status==='open'||game.status==='active') ? `<button onclick="showBuyinModal('${gameId}')" class="btn-primary">${myE.length?'🔄 리바인':'✋ 참가하기'}</button>` : ''}
           </div>
           ${myE.length ? `
           <div class="mt-4 p-3 rounded-lg text-sm" style="background:#16a34a15;border:1px solid #16a34a44">
