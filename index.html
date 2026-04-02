@@ -55,18 +55,37 @@
 
   <script>
   // ============================
-  // PRIZE TIERS (순위 게임 구간별 상금)
+  // PRIZE TIERS (구간별 상금)
   // ============================
-  const PRIZE_TIERS = [
+  // 일반 게임 (정기 / 파인애플 / 테스트 / 깐부)
+  const PRIZE_TIERS_NORMAL = [
     { tier:'6구간', minEntries:24, prizes:[20000,10000,5000] },
     { tier:'5구간', minEntries:20, prizes:[20000,10000,0] },
     { tier:'4구간', minEntries:17, prizes:[15000,10000,0] },
     { tier:'3구간', minEntries:14, prizes:[15000,5000,0] },
     { tier:'2구간', minEntries:10, prizes:[10000,5000,0] },
-    { tier:'1구간', minEntries:0,  prizes:[10000,0,0] },
+    { tier:'1구간', minEntries:7,  prizes:[10000,0,0] },
+    { tier:'미달',  minEntries:0,  prizes:[0,0,0] },
   ];
-  function getPrizeTier(entryCount) {
-    return PRIZE_TIERS.find(t => entryCount >= t.minEntries) || PRIZE_TIERS[PRIZE_TIERS.length-1];
+  // 대회 게임
+  const PRIZE_TIERS_TOURNAMENT = [
+    { tier:'7구간', minEntries:21, prizes:[35000,18000,10000] },
+    { tier:'6구간', minEntries:18, prizes:[30000,15000,9000] },
+    { tier:'5구간', minEntries:15, prizes:[30000,15000,0] },
+    { tier:'4구간', minEntries:12, prizes:[24000,12000,0] },
+    { tier:'3구간', minEntries:10, prizes:[20000,10000,0] },
+    { tier:'2구간', minEntries:7,  prizes:[14000,7000,0] },
+    { tier:'1구간', minEntries:5,  prizes:[10000,5000,0] },
+    { tier:'미달',  minEntries:0,  prizes:[0,0,0] },
+  ];
+  function getPrizeTier(gameType, entryCount) {
+    const tiers = (gameType === '대회') ? PRIZE_TIERS_TOURNAMENT : PRIZE_TIERS_NORMAL;
+    return tiers.find(t => entryCount >= t.minEntries) || tiers[tiers.length-1];
+  }
+  // 게임 유형 → awardType 자동 결정
+  function getAwardType(gameType) {
+    if (gameType === '깐부') return 'team';
+    return 'rank';
   }
 
   // ============================
@@ -522,10 +541,10 @@
             <div class="flex items-center gap-2 mb-1">
               <span class="font-semibold">${g.type} ${g.sessionNo}차</span>
               ${statusBadge(g.status)}
-              <span class="text-xs text-slate-500">${g.awardType==='chop'?'찹':'순위'}</span>
+              <span class="text-xs text-slate-500">${g.awardType==='team'?'팀전':g.awardType==='chop'?'찹':'순위'}</span>
             </div>
             <div class="text-slate-400 text-sm">${g.date} · ${g.duration}시간 · 바인 ${fmtMoney(g.buyInAmount)}</div>
-            <div class="text-slate-500 text-xs">${cnt}/${g.maxEntries}명 참가</div>
+            <div class="text-slate-500 text-xs">${cnt}명 참가</div>
           </div>
           ${isActive
               ? (joined ? `<a href="#/games/${g.id}" class="btn-primary btn-sm">🔄 리바인</a>` : `<span class="text-slate-500 text-xs">진행중</span>`)
@@ -594,10 +613,10 @@
               <div class="flex items-center gap-2 mb-1">
                 <span class="font-semibold text-white">${g.type} ${g.sessionNo}차</span>
                 ${statusBadge(g.status)}
-                <span class="text-xs text-slate-500">${g.awardType==='chop'?'찹':'순위'}</span>
+                <span class="text-xs text-slate-500">${g.awardType==='team'?'팀전':g.awardType==='chop'?'찹':'순위'}</span>
               </div>
               <div class="text-slate-400 text-sm">${g.date} · ${g.duration}시간 · 바인 ${fmtMoney(g.buyInAmount)}</div>
-              <div class="text-slate-500 text-xs">${cnt}명 참가 (엔트리 ${ge.length}개) / 최대 ${g.maxEntries}명</div>
+              <div class="text-slate-500 text-xs">${cnt}명 참가 (엔트리 ${ge.length}개)</div>
             </div>
           </div>
           <span class="text-slate-500">→</span>
@@ -636,7 +655,7 @@
         <td>${ue.filter(e=>e.type==='buyin').length}</td>
         <td>${ue.filter(e=>e.type==='rebuy').length}</td>
         <td class="text-sm">${seed?'<span class="text-blue-400">시드 '+fmtMoney(seed)+'</span>':''} ${cash?'<span class="text-orange-400">현금 '+fmtMoney(cash)+'</span>':''}</td>
-        <td>${award ? (award.rank?`<span class="text-yellow-400">${award.rank}등</span> ${fmtMoney(award.prizeAmount)}`:`<span class="text-green-400">찹</span> ${fmtMoney(award.prizeAmount)}`) : '-'}</td>
+        <td>${award ? (award.rank?(award.teamAward?`<span class="text-yellow-400">${award.rank}등팀</span> ${fmtMoney(award.prizeAmount)}`:`<span class="text-yellow-400">${award.rank}등</span> ${fmtMoney(award.prizeAmount)}`):`<span class="text-green-400">찹</span> ${fmtMoney(award.prizeAmount)}`) : '-'}</td>
       </tr>`;
     }).join('');
 
@@ -654,8 +673,8 @@
                 <div><span class="text-slate-400">날짜</span> <span class="ml-2">${game.date}</span></div>
                 <div><span class="text-slate-400">게임시간</span> <span class="ml-2">${game.duration}시간</span></div>
                 <div><span class="text-slate-400">바인금액</span> <span class="ml-2 text-green-400 font-semibold">${fmtMoney(game.buyInAmount)}</span></div>
-                <div><span class="text-slate-400">수상방식</span> <span class="ml-2">${game.awardType==='chop'?'찹 (1/N)':'순위 (5:3:2)'}</span></div>
-                <div><span class="text-slate-400">참가현황</span> <span class="ml-2">${participants.length}/${game.maxEntries}명</span></div>
+                <div><span class="text-slate-400">수상방식</span> <span class="ml-2">${game.awardType==='team'?'팀전':game.awardType==='chop'?'찹 (1/N)':'순위'}</span></div>
+                <div><span class="text-slate-400">참가현황</span> <span class="ml-2">${participants.length}명</span></div>
                 <div><span class="text-slate-400">상금풀</span> <span class="ml-2 text-yellow-400 font-semibold">${fmtMoney(totalPrize)}</span></div>
               </div>
             </div>
@@ -964,7 +983,7 @@
       return `<tr>
         <td><a href="#/admin/games/${g.id}" class="text-green-400 hover:underline">${g.type} ${g.sessionNo}차</a></td>
         <td class="text-slate-400">${g.date}</td>
-        <td>${cnt}/${g.maxEntries}</td>
+        <td>${cnt}명</td>
         <td>${statusBadge(g.status)}</td>
         <td><a href="#/admin/games/${g.id}" class="text-xs text-slate-400 hover:text-white">관리 →</a></td>
       </tr>`;
@@ -1005,8 +1024,8 @@
         <td class="text-slate-400">${g.date}</td>
         <td>${g.duration}h</td>
         <td>${fmtMoney(g.buyInAmount)}</td>
-        <td>${cnt}/${g.maxEntries}</td>
-        <td class="text-xs">${g.awardType==='chop'?'찹':'순위'}</td>
+        <td>${cnt}명</td>
+        <td class="text-xs">${g.awardType==='team'?'팀전':g.awardType==='chop'?'찹':'순위'}</td>
         <td>${statusBadge(g.status)}</td>
         <td><a href="#/admin/games/${g.id}" class="text-xs text-slate-400 hover:text-white">관리 →</a></td>
       </tr>`;
@@ -1034,13 +1053,10 @@
             <div class="grid grid-cols-2 gap-3">
               <div><label class="text-slate-400 text-xs mb-1 block">날짜</label><input id="gd" type="date" class="input" value="${today}" /></div>
               <div><label class="text-slate-400 text-xs mb-1 block">게임 유형</label>
-                <select id="gt" class="input"><option>정기</option><option>깐부</option><option>파인애플</option><option>테스트</option></select></div>
+                <select id="gt" class="input"><option>정기</option><option>대회</option><option>깐부</option><option>파인애플</option><option>테스트</option></select></div>
               <div><label class="text-slate-400 text-xs mb-1 block">차수</label><input id="gs" type="number" class="input" value="1" min="1" /></div>
               <div><label class="text-slate-400 text-xs mb-1 block">게임 시간(h)</label><input id="gdu" type="number" class="input" value="4" min="1" /></div>
-              <div><label class="text-slate-400 text-xs mb-1 block">최대 엔트리</label><input id="gme" type="number" class="input" value="20" min="1" /></div>
               <div><label class="text-slate-400 text-xs mb-1 block">바인 금액</label><input id="gba" type="number" class="input" value="3000" step="1000" /></div>
-              <div class="col-span-2"><label class="text-slate-400 text-xs mb-1 block">수상 방식</label>
-                <select id="gat" class="input"><option value="rank">순위 (1등 50%, 2등 30%, 3등 20%)</option><option value="chop">찹 (1/N 균등)</option></select></div>
             </div>
             <div class="flex gap-3 pt-2">
               <button type="submit" class="btn-primary flex-1">생성</button>
@@ -1056,8 +1072,8 @@
       const newGame = {
         id: uuid(), date: document.getElementById('gd').value, type: document.getElementById('gt').value,
         sessionNo: +document.getElementById('gs').value, duration: +document.getElementById('gdu').value,
-        maxEntries: +document.getElementById('gme').value, buyInAmount: +document.getElementById('gba').value,
-        awardType: document.getElementById('gat').value, status: 'open', createdAt: new Date().toISOString()
+        buyInAmount: +document.getElementById('gba').value,
+        awardType: getAwardType(document.getElementById('gt').value), status: 'open', createdAt: new Date().toISOString()
       };
       games.push(newGame);
       DB.set('games', games);
@@ -1106,10 +1122,12 @@
     let awardSection = '';
     if (game.status === 'closed') {
       if (ga.length > 0) {
+        const rankEmoji = r => r===1?'🥇':r===2?'🥈':r===3?'🥉':'';
         const aRows = ga.sort((a,b)=>(a.rank||99)-(b.rank||99)).map(a => {
           const user = users.find(u=>u.id===a.userId);
+          const label = a.rank ? (a.teamAward ? `${rankEmoji(a.rank)} ${a.rank}등팀` : `${rankEmoji(a.rank)} ${a.rank}등`) : '찹';
           return `<div class="flex items-center justify-between p-3 rounded-lg mb-2" style="background:#0f172a">
-            <span class="font-medium">${a.rank?`${a.rank}등`:'찹'}: ${user?.name}</span>
+            <span class="font-medium">${label}: ${user?.name}</span>
             <span>DPI <span class="text-yellow-400 font-bold">${a.dpiScore.toFixed(2)}</span> · ${fmtMoney(a.prizeAmount)}</span>
           </div>`;
         }).join('');
@@ -1126,35 +1144,66 @@
             <span>${user?.name||uid}</span>
           </label>`;
         }).join('');
-        awardSection = game.awardType === 'chop'
-          ? `<div class="card p-6"><h2 class="text-lg font-semibold mb-4">수상 결과 입력 — 찹</h2>
+        if (game.awardType === 'chop') {
+          awardSection = `<div class="card p-6"><h2 class="text-lg font-semibold mb-4">수상 결과 입력 — 찹</h2>
               <p class="text-slate-400 text-sm mb-3">수상자를 모두 선택하면 상금이 균등 분배됩니다.</p>
               <div class="space-y-1 mb-4">${chopInputs}</div>
-              <button onclick="saveAwards('${gameId}','chop')" class="btn-primary">저장</button></div>`
-          : (() => {
-              const tier = getPrizeTier(ge.length);
-              const [p1,p2,p3] = tier.prizes;
-              const tierInfo = `
-                <div class="mb-4 p-3 rounded-lg text-sm" style="background:#0f172a;border:1px solid #334155">
-                  <div class="flex items-center gap-2 mb-2">
-                    <span class="text-green-400 font-bold">${tier.tier}</span>
-                    <span class="text-slate-500">총 엔트리 ${ge.length}개 기준</span>
-                  </div>
-                  <div class="flex gap-4">
-                    <span class="text-yellow-400">🥇 1등 ${fmtMoney(p1)}</span>
-                    ${p2 ? `<span class="text-slate-300">🥈 2등 ${fmtMoney(p2)}</span>` : ''}
-                    ${p3 ? `<span class="text-orange-400">🥉 3등 ${fmtMoney(p3)}</span>` : ''}
-                  </div>
-                </div>`;
-              return `<div class="card p-6"><h2 class="text-lg font-semibold mb-4">수상 결과 입력 — 순위</h2>
-                ${tierInfo}
-                <div class="space-y-3 mb-4" style="max-width:360px">
-                  <div class="flex items-center gap-3"><span class="text-yellow-400 font-bold w-10">1등</span><select id="r1" class="input"><option value="">선택</option>${pOpts}</select></div>
-                  ${p2 ? `<div class="flex items-center gap-3"><span class="text-slate-300 font-bold w-10">2등</span><select id="r2" class="input"><option value="">선택</option>${pOpts}</select></div>` : ''}
-                  ${p3 ? `<div class="flex items-center gap-3"><span class="text-orange-400 font-bold w-10">3등</span><select id="r3" class="input"><option value="">선택</option>${pOpts}</select></div>` : ''}
-                </div>
-                <button onclick="saveAwards('${gameId}','rank')" class="btn-primary">저장</button></div>`;
-            })();
+              <button onclick="saveAwards('${gameId}','chop')" class="btn-primary">저장</button></div>`;
+        } else if (game.awardType === 'team') {
+          // 깐부 팀전: 1등팀/2등팀/3등팀 각 2명
+          const tier = getPrizeTier(game.type, ge.length);
+          const [p1,p2,p3] = tier.prizes;
+          const teamTierInfo = `
+            <div class="mb-4 p-3 rounded-lg text-sm" style="background:#0f172a;border:1px solid #334155">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-green-400 font-bold">${tier.tier}</span>
+                <span class="text-slate-500">총 엔트리 ${ge.length}개 기준 · 팀당 ÷2 지급</span>
+              </div>
+              <div class="flex gap-4 flex-wrap">
+                <span class="text-yellow-400">🥇 1등팀 각 ${fmtMoney(Math.floor(p1/2))}</span>
+                ${p2 ? `<span class="text-slate-300">🥈 2등팀 각 ${fmtMoney(Math.floor(p2/2))}</span>` : ''}
+                ${p3 ? `<span class="text-orange-400">🥉 3등팀 각 ${fmtMoney(Math.floor(p3/2))}</span>` : ''}
+              </div>
+            </div>`;
+          const teamRow = (rank, label, color) => `
+            <div class="p-3 rounded-lg mb-2" style="background:#0f172a;border:1px solid #334155">
+              <div class="text-xs font-bold mb-2" style="color:${color}">${label}</div>
+              <div class="flex gap-2">
+                <select id="t${rank}a" class="input flex-1"><option value="">선수 1 선택</option>${pOpts}</select>
+                <select id="t${rank}b" class="input flex-1"><option value="">선수 2 선택</option>${pOpts}</select>
+              </div>
+            </div>`;
+          awardSection = `<div class="card p-6"><h2 class="text-lg font-semibold mb-4">수상 결과 입력 — 팀전 (깐부)</h2>
+            ${teamTierInfo}
+            ${teamRow(1,'🥇 1등팀','#facc15')}
+            ${teamRow(2,'🥈 2등팀','#cbd5e1')}
+            ${teamRow(3,'🥉 3등팀','#fb923c')}
+            <button onclick="saveAwards('${gameId}','team')" class="btn-primary mt-2">저장</button></div>`;
+        } else {
+          // rank (정기, 파인애플, 테스트, 대회)
+          const tier = getPrizeTier(game.type, ge.length);
+          const [p1,p2,p3] = tier.prizes;
+          const tierInfo = `
+            <div class="mb-4 p-3 rounded-lg text-sm" style="background:#0f172a;border:1px solid #334155">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-green-400 font-bold">${tier.tier}</span>
+                <span class="text-slate-500">총 엔트리 ${ge.length}개 기준</span>
+              </div>
+              <div class="flex gap-4 flex-wrap">
+                <span class="text-yellow-400">🥇 1등 ${fmtMoney(p1)}</span>
+                ${p2 ? `<span class="text-slate-300">🥈 2등 ${fmtMoney(p2)}</span>` : ''}
+                ${p3 ? `<span class="text-orange-400">🥉 3등 ${fmtMoney(p3)}</span>` : ''}
+              </div>
+            </div>`;
+          awardSection = `<div class="card p-6"><h2 class="text-lg font-semibold mb-4">수상 결과 입력 — 순위</h2>
+            ${tierInfo}
+            <div class="space-y-3 mb-4" style="max-width:360px">
+              <div class="flex items-center gap-3"><span class="text-yellow-400 font-bold w-10">1등</span><select id="r1" class="input"><option value="">선택</option>${pOpts}</select></div>
+              <div class="flex items-center gap-3"><span class="text-slate-300 font-bold w-10">2등</span><select id="r2" class="input"><option value="">선택</option>${pOpts}</select></div>
+              <div class="flex items-center gap-3"><span class="text-orange-400 font-bold w-10">3등</span><select id="r3" class="input"><option value="">선택</option>${pOpts}</select></div>
+            </div>
+            <button onclick="saveAwards('${gameId}','rank')" class="btn-primary">저장</button></div>`;
+        }
       }
     }
 
@@ -1169,7 +1218,7 @@
                 <div><span class="text-slate-400">날짜</span> <span class="ml-2">${game.date}</span></div>
                 <div><span class="text-slate-400">시간</span> <span class="ml-2">${game.duration}h</span></div>
                 <div><span class="text-slate-400">바인</span> <span class="ml-2 text-green-400 font-semibold">${fmtMoney(game.buyInAmount)}</span></div>
-                <div><span class="text-slate-400">참가</span> <span class="ml-2">${participants.length}/${game.maxEntries}명</span></div>
+                <div><span class="text-slate-400">참가</span> <span class="ml-2">${participants.length}명</span></div>
                 <div><span class="text-slate-400">엔트리</span> <span class="ml-2">${ge.length}개</span></div>
                 <div><span class="text-slate-400">상금풀</span> <span class="ml-2 text-yellow-400 font-semibold">${fmtMoney(totalPrize)}</span></div>
               </div>
@@ -1353,22 +1402,58 @@
         const dpi = Math.round((totalEntryScore/winners.length/playerEntries)*100)/100;
         awards.push({ id:uuid(), gameId, userId:uid, rank:null, dpiScore:dpi, prizeAmount:prize, createdAt:new Date().toISOString() });
       });
+    } else if (type==='team') {
+      // 깐부 팀전: 1~3등 팀, 각 2명, 상금 ÷2
+      const tier = getPrizeTier(game.type, ge.length);
+      const tierPrizes = tier.prizes;
+      const dpiRatios = [0.5, 0.3, 0.2];
+      const teamSlots = [[1,'t1a','t1b'],[2,'t2a','t2b'],[3,'t3a','t3b']];
+      let saved = false;
+      teamSlots.forEach(([rank, idA, idB], i) => {
+        const uA = document.getElementById(idA)?.value;
+        const uB = document.getElementById(idB)?.value;
+        if (!uA && !uB) return; // 비어있으면 스킵
+        const prizeEach = Math.floor((tierPrizes[i]||0) / 2);
+        [uA, uB].filter(Boolean).forEach(uid => {
+          const playerEntries = ge.filter(e=>e.userId===uid).length || 1;
+          const dpi = Math.round((totalEntryScore*dpiRatios[i]/playerEntries)*100)/100;
+          awards.push({ id:uuid(), gameId, userId:uid, rank, dpiScore:dpi, prizeAmount:prizeEach, teamAward:true, createdAt:new Date().toISOString() });
+        });
+        saved = true;
+      });
+      if (!saved) { alert('1등팀을 선택하세요.'); return; }
     } else {
-      const tier = getPrizeTier(ge.length);
+      // rank (정기, 파인애플, 테스트, 대회)
+      const tier = getPrizeTier(game.type, ge.length);
       const tierPrizes = tier.prizes;
       const r1 = document.getElementById('r1')?.value;
       const r2 = document.getElementById('r2')?.value;
       const r3 = document.getElementById('r3')?.value;
       if (!r1) { alert('1등을 선택하세요.'); return; }
-      const ranks = [r1, tierPrizes[1]>0 ? r2 : null, tierPrizes[2]>0 ? r3 : null].filter(Boolean);
       const dpiRatios = [0.5, 0.3, 0.2];
-      ranks.forEach((uid, i) => {
+      [[r1,0],[r2,1],[r3,2]].forEach(([uid, i]) => {
+        if (!uid) return;
         const playerEntries = ge.filter(e=>e.userId===uid).length || 1;
         const dpi = Math.round((totalEntryScore*dpiRatios[i]/playerEntries)*100)/100;
         awards.push({ id:uuid(), gameId, userId:uid, rank:i+1, dpiScore:dpi, prizeAmount:tierPrizes[i]||0, createdAt:new Date().toISOString() });
       });
     }
     DB.set('awards', awards);
+    // 시드 자동 지급
+    const users = DB.get('users')||[];
+    const txns = DB.get('seedTxns')||[];
+    const gameName = `${game.type} ${game.sessionNo}차 (${game.date})`;
+    awards.filter(a => a.gameId === gameId && a.prizeAmount > 0).forEach(a => {
+      const ui = users.findIndex(u => u.id === a.userId);
+      if (ui < 0) return;
+      users[ui].seedBalance = (users[ui].seedBalance||0) + a.prizeAmount;
+      txns.push({ id:uuid(), userId:a.userId, type:'charge', amount:a.prizeAmount,
+        balanceAfter:users[ui].seedBalance,
+        note: a.teamAward ? `${a.rank}등팀 상금 · ${gameName}` : (a.rank ? `${a.rank}등 상금 · ${gameName}` : `찹 상금 · ${gameName}`),
+        entryId:null, createdAt:new Date().toISOString() });
+    });
+    DB.set('users', users);
+    DB.set('seedTxns', txns);
     render();
   };
 
@@ -1480,29 +1565,18 @@
           </div>
         </div>
         <div class="card p-6">
-          <h2 class="text-lg font-semibold mb-4">시드 지급 / 차감</h2>
+          <h2 class="text-lg font-semibold mb-1">시드 수동 지급 / 차감</h2>
+          <p class="text-slate-400 text-xs mb-4">게임 상금은 순위 저장 시 자동 지급됩니다. 이 기능은 예외 상황에만 사용하세요.</p>
           <div id="sm" class="hidden mb-3"></div>
           <form id="sf" class="space-y-3">
             <div class="flex gap-3 flex-wrap items-end">
               <div style="min-width:160px">
                 <label class="text-slate-400 text-xs mb-1 block">금액 (양수=지급, 음수=차감)</label>
-                <input id="sa" type="number" class="input" placeholder="예: 3000 또는 -3000" step="3000" />
+                <input id="sa" type="number" class="input" placeholder="예: 3000 또는 -3000" step="1" />
               </div>
-              <div class="flex-1" style="min-width:220px">
+              <div class="flex-1" style="min-width:200px">
                 <label class="text-slate-400 text-xs mb-1 block">사유</label>
-                <div class="flex gap-2 mb-2">
-                  <button type="button" id="note-game-btn" onclick="toggleNoteMode('game')" class="text-xs px-3 py-1 rounded-full border border-green-600 text-green-400 bg-green-900/30">🎮 게임 선택</button>
-                  <button type="button" id="note-text-btn" onclick="toggleNoteMode('text')" class="text-xs px-3 py-1 rounded-full border border-slate-600 text-slate-400">✏️ 직접 입력</button>
-                </div>
-                <div id="note-game-wrap">
-                  <select id="sn-game" class="input">
-                    <option value="">-- 게임을 선택하세요 --</option>
-                    ${(DB.get('games')||[]).sort((a,b)=>b.date.localeCompare(a.date)).map(g=>`<option value="${g.type} ${g.sessionNo}차 (${g.date})">${g.type} ${g.sessionNo}차 · ${g.date}</option>`).join('')}
-                  </select>
-                </div>
-                <div id="note-text-wrap" class="hidden">
-                  <input id="sn-text" type="text" class="input" placeholder="우승 상금, 보너스, 회수 등" />
-                </div>
+                <input id="sn-text" type="text" class="input" placeholder="사유 입력 (선택)" />
               </div>
               <button type="submit" class="btn-primary whitespace-nowrap">처리</button>
             </div>
@@ -1570,44 +1644,13 @@
     }
   };
 
-  // 시드 사유 입력 모드 토글
-  window.toggleNoteMode = function(mode) {
-    const gameWrap = document.getElementById('note-game-wrap');
-    const textWrap = document.getElementById('note-text-wrap');
-    const gameBtn  = document.getElementById('note-game-btn');
-    const textBtn  = document.getElementById('note-text-btn');
-    if (!gameWrap) return;
-    if (mode === 'game') {
-      gameWrap.classList.remove('hidden'); textWrap.classList.add('hidden');
-      gameBtn.classList.add('border-green-600','text-green-400','bg-green-900/30');
-      gameBtn.classList.remove('border-slate-600','text-slate-400');
-      textBtn.classList.add('border-slate-600','text-slate-400');
-      textBtn.classList.remove('border-green-600','text-green-400','bg-green-900/30');
-    } else {
-      textWrap.classList.remove('hidden'); gameWrap.classList.add('hidden');
-      textBtn.classList.add('border-green-600','text-green-400','bg-green-900/30');
-      textBtn.classList.remove('border-slate-600','text-slate-400');
-      gameBtn.classList.add('border-slate-600','text-slate-400');
-      gameBtn.classList.remove('border-green-600','text-green-400','bg-green-900/30');
-    }
-  };
-
   function bindPlayerSeed(playerId) {
     const form = document.getElementById('sf');
     if (!form) return;
     form.addEventListener('submit', e => {
       e.preventDefault();
       const amount = parseInt(document.getElementById('sa').value);
-      // 사유: 게임 선택 vs 직접 입력
-      const gameNote = document.getElementById('sn-game');
-      const textNote = document.getElementById('sn-text');
-      const noteGameWrap = document.getElementById('note-game-wrap');
-      let note = '';
-      if (noteGameWrap && !noteGameWrap.classList.contains('hidden')) {
-        note = gameNote ? gameNote.value : '';
-      } else {
-        note = textNote ? textNote.value.trim() : '';
-      }
+      const note = (document.getElementById('sn-text')?.value.trim()) || '';
       if (!amount || isNaN(amount)) return msg('sm','err','금액을 입력하세요.');
       const users = DB.get('users')||[];
       const ui = users.findIndex(u=>u.id===playerId);
