@@ -812,60 +812,99 @@
   }
 
   // ============================
-  // RANKING
+  // RANKING — Google Sheets 실시간 연동
   // ============================
-  function rankingPage() {
-    const users = (DB.get('users')||[]).filter(u=>u.role==='player');
-    const entries = DB.get('entries')||[];
-    const awards = DB.get('awards')||[];
+  const SHEETS_CSV_URL = 'https://docs.google.com/spreadsheets/d/1E_KptKF4SUk9NZAahByVZKT5YfWP3TwzS_Lz1fgWd3E/export?format=csv&gid=1125152203';
+  let _sheetsCache = { data: null, ts: 0, loading: false };
 
-    const stats = users.map(u => {
-      const ue = entries.filter(e=>e.userId===u.id);
-      const ua = awards.filter(a=>a.userId===u.id);
-      const gamesPlayed = [...new Set(ue.map(e=>e.gameId))].length;
-      const totalBuyins = ue.filter(e=>e.type==='buyin').length; // = gamesPlayed
-      const totalRebuys = ue.filter(e=>e.type==='rebuy').length;
-      const wins1 = ua.filter(a=>a.rank===1).length;
-      const winsChop = ua.filter(a=>a.rank===null).length;
-      const totalWins = ua.length;
-      const dealer = u.dealer || 0;
-      const rawScore = ua.reduce((s,a)=>s+(a.dpiScore||0),0);
-      // DPI 공식: 수상점수합 × MIN(1, 총바인/10) + 총바인×0.2 + 딜러×0.5
-      const totalDPI = rawScore * Math.min(1, totalBuyins/10) + totalBuyins*0.2 + dealer*0.5;
-      const expectedDPI = rawScore + totalBuyins*0.2 + dealer*0.5; // 패널티 없을 때
-      const penalty = totalBuyins < 10;
-      return { u, gamesPlayed, totalBuyins, totalRebuys, wins1, winsChop, totalWins, rawScore, totalDPI, expectedDPI, penalty, dealer };
-    }).sort((a,b) => b.totalDPI - a.totalDPI);
+  async function loadSheetsRanking(forceRender) {
+    if (_sheetsCache.loading) return;
+    _sheetsCache.loading = true;
+    try {
+      const res = await fetch(SHEETS_CSV_URL);
+      const text = await res.text();
+      const lines = text.trim().split('\n');
+      const players = [];
+      let expectedRank = 1; // 1→2→3 순서대로만 수집 (중복·역순 차단)
+      for (const line of lines) {
+        if (expectedRank > 16) break;
+        const cols = line.split(',').map(c => c.replace(/^"|"$/g, '').trim());
+        const rank = parseInt(cols[0]);
+        if (rank === expectedRank && cols[1]) {
+          players.push({
+            rank,
+            name:        cols[1] || '',
+            totalRebuy:  parseInt(cols[2])   || 0,
+            totalBuyin:  parseInt(cols[3])   || 0,
+            dealer:      parseFloat(cols[4]) || 0,
+            wins:        parseInt(cols[5])   || 0,
+            dpi:         parseFloat(cols[6]) || 0,
+            expectedDpi: parseFloat(cols[7]) || 0,
+          });
+          expectedRank++;
+        }
+      }
+      if (players.length > 0) {
+        _sheetsCache = { data: players, ts: Date.now(), loading: false };
+        if (forceRender || window.location.hash === '#/ranking') render();
+      }
+    } catch(e) {
+      _sheetsCache.loading = false;
+      console.warn('Sheets 랭킹 로드 실패:', e);
+    }
+  }
+
+  // 5분마다 자동 갱신
+  setInterval(() => loadSheetsRanking(false), 5 * 60 * 1000);
+
+  function rankingPage() {
+    const users = DB.get('users') || [];
+
+    // 시트 데이터가 없으면 즉시 로드 트리거 (로딩 화면 표시)
+    if (!_sheetsCache.data) {
+      loadSheetsRanking(true);
+      return `
+        <div class="space-y-6">
+          <h1 class="text-2xl font-bold">🏆 DPI 순위 리더보드</h1>
+          <div class="card p-10 flex flex-col items-center gap-3">
+            <div style="width:36px;height:36px;border:3px solid #334155;border-top-color:#4ade80;border-radius:50%;animation:spin 0.8s linear infinite"></div>
+            <p class="text-slate-400 text-sm">스프레드시트에서 최신 랭킹을 불러오는 중...</p>
+          </div>
+        </div>`;
+    }
+
+    const lastUpdate = _sheetsCache.ts
+      ? new Date(_sheetsCache.ts).toLocaleTimeString('ko-KR', {hour:'2-digit',minute:'2-digit'})
+      : '-';
 
     const icons = ['🥇','🥈','🥉'];
-    const rows = stats.map((s,i) => `<tr ${s.u.id===CU.id?'style="background:#16a34a10"':''}>
-      <td class="${i<3?['rank-1','rank-2 text-slate-300','rank-3'][i]:'text-slate-400'}">${icons[i]||i+1}</td>
-      <td class="font-medium">${s.u.name} ${s.u.id===CU.id?'<span class="text-green-400 text-xs">(나)</span>':''}</td>
-      <td>${s.gamesPlayed}</td>
-      <td>${s.totalBuyins}</td>
-      <td>${s.totalRebuys}</td>
-      <td class="font-semibold">${s.totalWins}</td>
-      <td class="font-bold ${s.penalty?'text-slate-400':'text-yellow-400'}">${s.totalDPI.toFixed(1)}${s.penalty?`<span class="text-slate-500 text-xs font-normal"> (기대 ${s.expectedDPI.toFixed(1)})</span>`:''}</td>
-      <td>${s.penalty?'<span class="text-orange-400 text-xs">⚠ 미달</span>':'<span class="text-green-400 text-xs">✓</span>'}</td>
-    </tr>`).join('');
+    const rows = _sheetsCache.data.map((p, i) => {
+      const user = users.find(u => u.name === p.name);
+      const isMe = user && user.id === CU.id;
+      const penalty = p.expectedDpi > 0 && p.dpi < p.expectedDpi;
+      return `<tr ${isMe ? 'style="background:#16a34a18"' : ''}>
+        <td class="${i<3?['rank-1','rank-2 text-slate-300','rank-3'][i]:'text-slate-400'} font-bold">${icons[i]||p.rank}</td>
+        <td class="font-medium">${p.name}${isMe?' <span class="text-green-400 text-xs">(나)</span>':''}</td>
+        <td>${p.totalBuyin}</td>
+        <td>${p.totalRebuy}</td>
+        <td>${p.dealer||'-'}</td>
+        <td class="font-semibold">${p.wins}</td>
+        <td class="font-bold text-yellow-400">${p.dpi.toFixed(1)}${p.expectedDpi&&p.expectedDpi!==p.dpi?`<span class="text-slate-500 text-xs font-normal"> (기대 ${p.expectedDpi.toFixed(1)})</span>`:''}</td>
+      </tr>`;
+    }).join('');
 
     return `
       <div class="space-y-6">
-        <h1 class="text-2xl font-bold">🏆 DPI 순위 리더보드</h1>
-        <div class="card overflow-hidden">
-          <table><thead><tr><th>순위</th><th>이름</th><th>참여</th><th>바인</th><th>리바인</th><th>우승횟수</th><th>DPI 점수</th><th>비고</th></tr></thead>
-          <tbody>${rows}</tbody></table>
-        </div>
-        <div class="card p-5 text-sm text-slate-400">
-          <p class="font-semibold text-slate-300 mb-3">📐 DPI 계산 방식</p>
-          <div class="grid grid-cols-2 gap-x-8 gap-y-1">
-            <p>• 게임점수 = 0.3 × 총엔트리 × 게임시간 × 비율 / 개인엔트리</p>
-            <p>• 순위 비율: 1등 50% / 2등 30% / 3등 20%</p>
-            <p>• 찹: 동률자 수로 균등 분배</p>
-            <p>• DPI = 점수합 × MIN(1, 총바인/10) + 총바인×0.2 + 딜러×0.5</p>
-            <p>• 10게임 미만: 수상점수에 (총바인/10) 페널티 적용</p>
-            <p>• 딜러 참여 1회 = +0.5점</p>
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <h1 class="text-2xl font-bold">🏆 DPI 순위 리더보드</h1>
+          <div class="flex items-center gap-3">
+            <span class="text-slate-500 text-xs">최근 갱신 ${lastUpdate} · 5분마다 자동 업데이트</span>
+            <button onclick="loadSheetsRanking(true)" class="text-xs px-3 py-1 rounded-full border border-slate-600 text-slate-400 hover:text-white hover:border-slate-400">🔄 지금 갱신</button>
           </div>
+        </div>
+        <div class="card overflow-hidden">
+          <table><thead><tr><th>순위</th><th>이름</th><th>바인</th><th>리바인</th><th>딜러</th><th>우승횟수</th><th>DPI 점수</th></tr></thead>
+          <tbody>${rows}</tbody></table>
         </div>
       </div>`;
   }
