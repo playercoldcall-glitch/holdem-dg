@@ -1352,3 +1352,552 @@
           <div class="mt-2 flex items-center justify-between text-sm">
             <span class="text-slate-400">시드 결제</span>
             <span class="text-blue-400 font-mono">${fmtMoney(ge.filter
+(e=>e.payment==='seed').reduce((s,e)=>s+e.amount,0))}</span>
+          </div>
+          <div class="mt-1 flex items-center justify-between text-sm">
+            <span class="text-slate-400">현금 결제</span>
+            <span class="text-orange-400 font-mono">${fmtMoney(ge.filter(e=>e.payment==='cash').reduce((s,e)=>s+e.amount,0))}</span>
+          </div>
+        </div>` : ''}
+        ${participants.length ? `
+        <div>
+          <h2 class="text-lg font-semibold mb-3">참가자 목록</h2>
+          <div class="card overflow-hidden">
+            <table><thead><tr><th>이름</th><th>바인</th><th>리바인</th><th>시드</th><th>현금</th><th>합계</th></tr></thead>
+            <tbody>${pRows}</tbody></table>
+          </div>
+        </div>` : ''}
+        ${awardSection}
+      </div>`;
+  }
+
+  function bindAdminGameDetail(gameId) {}
+
+  window.deleteGame = function(gameId) {
+    if (!confirm('이 게임과 관련된 엔트리·수상 데이터도 모두 삭제됩니다.\n정말 삭제하시겠습니까?')) return;
+    const games = (DB.get('games')||[]).filter(g=>g.id!==gameId);
+    const entries = (DB.get('entries')||[]).filter(e=>e.gameId!==gameId);
+    const awards = (DB.get('awards')||[]).filter(a=>a.gameId!==gameId);
+    DB.set('games', games);
+    DB.set('entries', entries);
+    DB.set('awards', awards);
+    window.location.hash = '#/admin/games';
+  };
+
+  window.adminAddEntry = function(gameId, userId, type) {
+    const game = (DB.get('games')||[]).find(g=>g.id===gameId);
+    const user = (DB.get('users')||[]).find(u=>u.id===userId);
+    const canSeed = user.seedBalance >= game.buyInAmount;
+    document.getElementById('modal-root').innerHTML = `
+      <div class="modal-overlay" id="mo">
+        <div class="modal" style="max-width:340px">
+          <h3 class="text-base font-bold mb-1">${user.name} — ${type==='rebuy'?'리바인':'바인'} 추가</h3>
+          <p class="text-slate-400 text-sm mb-5">결제 방식을 선택하세요 (${fmtMoney(game.buyInAmount)})</p>
+          ${canSeed
+            ? `<button onclick="adminDoAddEntry('${gameId}','${userId}','${type}','seed')" class="btn-primary w-full text-center mb-3">🌱 시드 차감 (잔액 ${fmtMoney(user.seedBalance-game.buyInAmount)})</button>`
+            : `<button disabled class="w-full mb-3 p-2 rounded-lg text-slate-500 text-sm cursor-not-allowed" style="background:#1e293b;border:1px solid #334155">🌱 시드 잔액 부족</button>`}
+          <button onclick="adminDoAddEntry('${gameId}','${userId}','${type}','cash')" class="btn-secondary w-full text-center mb-3">💵 현금</button>
+          <button onclick="closeM()" class="w-full text-slate-500 text-sm mt-1 text-center">취소</button>
+        </div>
+      </div>`;
+    document.getElementById('mo').addEventListener('click', e => { if(e.target.id==='mo') closeM(); });
+  };
+
+  window.adminDoAddEntry = function(gameId, userId, type, payment) {
+    const game = (DB.get('games')||[]).find(g=>g.id===gameId);
+    const entries = DB.get('entries')||[];
+    const eid = uuid();
+    entries.push({ id:eid, gameId, userId, type, payment, amount:game.buyInAmount, createdAt:new Date().toISOString() });
+    DB.set('entries', entries);
+    if (payment==='seed') {
+      const users = DB.get('users')||[];
+      const ui = users.findIndex(u=>u.id===userId);
+      users[ui].seedBalance -= game.buyInAmount;
+      DB.set('users', users);
+      const txns = DB.get('seedTxns')||[];
+      txns.push({ id:uuid(), userId, type:'use', amount:-game.buyInAmount, balanceAfter:users[ui].seedBalance,
+        note:`[관리자] ${gameDisplayName(game)} ${type==='rebuy'?'리바인':'바인'} 추가`, entryId:eid, createdAt:new Date().toISOString() });
+      DB.set('seedTxns', txns);
+    }
+    closeM();
+    render();
+  };
+
+  window.adminRemoveEntry = function(gameId, userId, type) {
+    const entries = DB.get('entries')||[];
+    const userEntries = [...entries].filter(e=>e.gameId===gameId&&e.userId===userId&&e.type===type);
+    if (!userEntries.length) { alert('삭제할 리바인 엔트리가 없습니다.'); return; }
+    const seedCnt = userEntries.filter(e=>e.payment==='seed').length;
+    const cashCnt = userEntries.filter(e=>e.payment==='cash').length;
+    const game = (DB.get('games')||[]).find(g=>g.id===gameId);
+    const user = (DB.get('users')||[]).find(u=>u.id===userId);
+    document.getElementById('modal-root').innerHTML = `
+      <div class="modal-overlay" id="mo">
+        <div class="modal" style="max-width:340px">
+          <h3 class="text-base font-bold mb-1">${user?.name} — 리바인 삭제</h3>
+          <p class="text-slate-400 text-sm mb-5">삭제할 결제 방식을 선택하세요</p>
+          ${seedCnt > 0
+            ? `<button onclick="adminDoRemoveEntry('${gameId}','${userId}','${type}','seed')" class="btn-primary w-full text-center mb-3">🌱 시드 결제 리바인 삭제 (${seedCnt}개 중 1개)<br><span class="text-xs font-normal opacity-75">${fmtMoney(game.buyInAmount)} 시드 환불</span></button>`
+            : `<button disabled class="w-full mb-3 p-2 rounded-lg text-slate-500 text-sm cursor-not-allowed" style="background:#1e293b;border:1px solid #334155">🌱 시드 결제 없음</button>`}
+          ${cashCnt > 0
+            ? `<button onclick="adminDoRemoveEntry('${gameId}','${userId}','${type}','cash')" class="btn-secondary w-full text-center mb-3">💵 현금 결제 리바인 삭제 (${cashCnt}개 중 1개)</button>`
+            : `<button disabled class="w-full mb-3 p-2 rounded-lg text-slate-500 text-sm cursor-not-allowed" style="background:#1e293b;border:1px solid #334155">💵 현금 결제 없음</button>`}
+          <button onclick="closeM()" class="w-full text-slate-500 text-sm mt-1 text-center">취소</button>
+        </div>
+      </div>`;
+    document.getElementById('mo').addEventListener('click', e => { if(e.target.id==='mo') closeM(); });
+  };
+
+  window.adminDoRemoveEntry = function(gameId, userId, type, payment) {
+    const entries = DB.get('entries')||[];
+    const toRemove = [...entries]
+      .filter(e=>e.gameId===gameId&&e.userId===userId&&e.type===type&&e.payment===payment)
+      .sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];
+    if (!toRemove) { alert('해당 결제 방식의 엔트리를 찾을 수 없습니다.'); closeM(); return; }
+    const game = (DB.get('games')||[]).find(g=>g.id===gameId);
+    if (payment==='seed') {
+      const users = DB.get('users')||[];
+      const ui = users.findIndex(u=>u.id===userId);
+      users[ui].seedBalance += toRemove.amount;
+      DB.set('users', users);
+      const txns = DB.get('seedTxns')||[];
+      txns.push({ id:uuid(), userId, type:'refund', amount:toRemove.amount, balanceAfter:users[ui].seedBalance,
+        note:`[관리자] ${gameDisplayName(game)} 리바인 삭제/환불`, createdAt:new Date().toISOString() });
+      DB.set('seedTxns', txns);
+    }
+    DB.set('entries', entries.filter(e=>e.id!==toRemove.id));
+    closeM();
+    render();
+  };
+
+  window.setStatus = function(gameId, status) {
+    const games = DB.get('games')||[];
+    const i = games.findIndex(g=>g.id===gameId);
+    if (i>=0) { games[i].status=status; DB.set('games',games); render(); }
+  };
+
+  window.saveAwards = function(gameId, type) {
+    const game = (DB.get('games')||[]).find(g=>g.id===gameId);
+    const entries = DB.get('entries')||[];
+    const awards = DB.get('awards')||[];
+    const ge = entries.filter(e=>e.gameId===gameId);
+    const totalEntryScore = ge.length * game.duration * 0.3;
+    const totalPrize = ge.length * game.buyInAmount;
+
+    if (type==='chop') {
+      const winners = [...document.querySelectorAll('input[name="cw"]:checked')].map(el=>el.value);
+      if (!winners.length) { alert('수상자를 선택하세요.'); return; }
+      const prize = Math.floor(totalPrize / winners.length);
+      winners.forEach(uid => {
+        const playerEntries = ge.filter(e=>e.userId===uid).length || 1;
+        const dpi = Math.round((totalEntryScore/winners.length/playerEntries)*100)/100;
+        awards.push({ id:uuid(), gameId, userId:uid, rank:null, dpiScore:dpi, prizeAmount:prize, createdAt:new Date().toISOString() });
+      });
+    } else if (type==='team') {
+      const tier = getPrizeTier(game.type, ge.length);
+      const tierPrizes = tier.prizes;
+      const dpiRatios = [0.5, 0.3, 0.2];
+      const teamSlots = [[1,'t1a','t1b'],[2,'t2a','t2b'],[3,'t3a','t3b']];
+      let saved = false;
+      teamSlots.forEach(([rank, idA, idB], i) => {
+        const uA = document.getElementById(idA)?.value;
+        const uB = document.getElementById(idB)?.value;
+        if (!uA && !uB) return;
+        const prizeEach = Math.floor((tierPrizes[i]||0) / 2);
+        [uA, uB].filter(Boolean).forEach(uid => {
+          const playerEntries = ge.filter(e=>e.userId===uid).length || 1;
+          const dpi = Math.round((totalEntryScore*dpiRatios[i]/playerEntries)*100)/100;
+          awards.push({ id:uuid(), gameId, userId:uid, rank, dpiScore:dpi, prizeAmount:prizeEach, teamAward:true, createdAt:new Date().toISOString() });
+        });
+        saved = true;
+      });
+      if (!saved) { alert('1등팀을 선택하세요.'); return; }
+    } else {
+      const tier = getPrizeTier(game.type, ge.length);
+      const tierPrizes = tier.prizes;
+      const r1 = document.getElementById('r1')?.value;
+      const r2 = document.getElementById('r2')?.value;
+      const r3 = document.getElementById('r3')?.value;
+      if (!r1) { alert('1등을 선택하세요.'); return; }
+      const dpiRatios = [0.5, 0.3, 0.2];
+      [[r1,0],[r2,1],[r3,2]].forEach(([uid, i]) => {
+        if (!uid) return;
+        const playerEntries = ge.filter(e=>e.userId===uid).length || 1;
+        const dpi = Math.round((totalEntryScore*dpiRatios[i]/playerEntries)*100)/100;
+        awards.push({ id:uuid(), gameId, userId:uid, rank:i+1, dpiScore:dpi, prizeAmount:tierPrizes[i]||0, createdAt:new Date().toISOString() });
+      });
+    }
+    DB.set('awards', awards);
+    const users = DB.get('users')||[];
+    const txns = DB.get('seedTxns')||[];
+    const gameName = gameDisplayName(game) + ` (${game.date})`;
+    awards.filter(a => a.gameId === gameId && a.prizeAmount > 0).forEach(a => {
+      if (txns.some(t => t.awardId === a.id)) return;
+      const ui = users.findIndex(u => u.id === a.userId);
+      if (ui < 0) return;
+      users[ui].seedBalance = (users[ui].seedBalance||0) + a.prizeAmount;
+      txns.push({ id:uuid(), userId:a.userId, type:'charge', amount:a.prizeAmount,
+        balanceAfter:users[ui].seedBalance, awardId:a.id,
+        note: a.teamAward ? `${a.rank}등팀 상금 · ${gameName}` : (a.rank ? `${a.rank}등 상금 · ${gameName}` : `찹 상금 · ${gameName}`),
+        entryId:null, createdAt:new Date().toISOString() });
+    });
+    DB.set('users', users);
+    DB.set('seedTxns', txns);
+    render();
+  };
+
+  window.saveRingResults = function(gameId) {
+    const game = (DB.get('games')||[]).find(g=>g.id===gameId);
+    const entries = DB.get('entries')||[];
+    const ge = entries.filter(e=>e.gameId===gameId);
+    const participants = [...new Set(ge.map(e=>e.userId))];
+    const awards = DB.get('awards')||[];
+    const gameName = gameDisplayName(game) + ` (${game.date})`;
+    const newAwards = [];
+    participants.forEach(uid => {
+      const chips = Math.max(0, +document.getElementById('chip_'+uid)?.value || 0);
+      const seeds = Math.floor(chips / 10000) * 1000;
+      const aid = uuid();
+      newAwards.push({ id:aid, gameId, userId:uid, rank:null, chips, dpiScore:0, prizeAmount:seeds, createdAt:new Date().toISOString() });
+    });
+    awards.push(...newAwards);
+    DB.set('awards', awards);
+    const users = DB.get('users')||[];
+    const txns = DB.get('seedTxns')||[];
+    newAwards.filter(a => a.prizeAmount > 0).forEach(a => {
+      const ui = users.findIndex(u=>u.id===a.userId);
+      if (ui<0) return;
+      users[ui].seedBalance = (users[ui].seedBalance||0) + a.prizeAmount;
+      txns.push({ id:uuid(), userId:a.userId, type:'charge', amount:a.prizeAmount,
+        balanceAfter:users[ui].seedBalance, awardId:a.id,
+        note:`링게임 칩정산 · ${gameName}`,
+        entryId:null, createdAt:new Date().toISOString() });
+    });
+    DB.set('users', users);
+    DB.set('seedTxns', txns);
+    alert(`정산 완료! ${newAwards.filter(a=>a.prizeAmount>0).length}명에게 시드가 지급되었습니다.`);
+    render();
+  };
+
+  window.repayAwardSeeds = function(gameId) {
+    const game = (DB.get('games')||[]).find(g=>g.id===gameId);
+    const allAwards = (DB.get('awards')||[]).filter(a=>a.gameId===gameId && a.prizeAmount>0);
+    if (!allAwards.length) { alert('지급할 상금이 없습니다.'); return; }
+    const txns = DB.get('seedTxns')||[];
+    const users = DB.get('users')||[];
+    const gameName = gameDisplayName(game) + ` (${game.date})`;
+    let count = 0;
+    allAwards.forEach(a => {
+      if (a.id && txns.some(t=>t.awardId===a.id)) return;
+      const ui = users.findIndex(u=>u.id===a.userId);
+      if (ui<0) return;
+      users[ui].seedBalance = (users[ui].seedBalance||0) + a.prizeAmount;
+      txns.push({ id:uuid(), userId:a.userId, type:'charge', amount:a.prizeAmount,
+        balanceAfter:users[ui].seedBalance, awardId:a.id,
+        note: game.awardType==='ring'
+          ? `링게임 칩정산 · ${gameName}`
+          : (a.teamAward?`${a.rank}등팀 상금 · ${gameName}`:(a.rank?`${a.rank}등 상금 · ${gameName}`:`찹 상금 · ${gameName}`)),
+        entryId:null, createdAt:new Date().toISOString() });
+      count++;
+    });
+    if (count === 0) { alert('이미 모든 상금이 지급된 상태입니다.'); return; }
+    DB.set('users', users);
+    DB.set('seedTxns', txns);
+    alert(`✅ ${count}명에게 시드가 지급되었습니다.`);
+    render();
+  };
+
+  function adminPlayersPage() {
+    const users = (DB.get('users')||[]).filter(u=>u.role==='player');
+    const entries = DB.get('entries')||[];
+    const awards = DB.get('awards')||[];
+    const rows = users.map(u => {
+      const gamesPlayed = [...new Set((entries.filter(e=>e.userId===u.id)).map(e=>e.gameId))].length;
+      const wins = awards.filter(a=>a.userId===u.id).length;
+      return `<tr>
+        <td class="font-medium">${u.name}</td>
+        <td class="text-slate-400">@${u.username}</td>
+        <td class="text-green-400 font-bold font-mono">${fmtMoney(u.seedBalance)}</td>
+        <td>${gamesPlayed}회</td>
+        <td>${wins}회</td>
+        <td><a href="#/admin/players/${u.id}" class="text-green-400 text-xs hover:underline">관리 →</a></td>
+      </tr>`;
+    }).join('');
+    return `
+      <div class="space-y-6">
+        <div class="flex items-center justify-between">
+          <h1 class="text-2xl font-bold">플레이어 관리</h1>
+          <button onclick="showCreatePlayer()" class="btn-primary">+ 플레이어 추가</button>
+        </div>
+        <div class="card overflow-hidden">
+          <table><thead><tr><th>이름</th><th>아이디</th><th>시드 잔액</th><th>참여</th><th>우승횟수</th><th></th></tr></thead>
+          <tbody>${rows||'<tr><td colspan="6" class="text-center text-slate-500 py-8">플레이어 없음</td></tr>'}</tbody></table>
+        </div>
+      </div>`;
+  }
+
+  window.showCreatePlayer = function() {
+    document.getElementById('modal-root').innerHTML = `
+      <div class="modal-overlay" id="mo">
+        <div class="modal">
+          <h3 class="text-lg font-bold mb-4">플레이어 계정 생성</h3>
+          <div id="cpe" class="hidden mb-3"></div>
+          <form id="cpf" class="space-y-3">
+            <div><label class="text-slate-400 text-xs mb-1 block">이름</label><input id="cpn" type="text" class="input" placeholder="홍길동" /></div>
+            <div><label class="text-slate-400 text-xs mb-1 block">아이디</label><input id="cpu" type="text" class="input" placeholder="hong123" /></div>
+            <div><label class="text-slate-400 text-xs mb-1 block">초기 비밀번호</label><input id="cpp" type="text" class="input" value="1234" /></div>
+            <div class="flex gap-3 pt-2">
+              <button type="submit" class="btn-primary flex-1">생성</button>
+              <button type="button" onclick="closeM()" class="btn-secondary flex-1">취소</button>
+            </div>
+          </form>
+        </div>
+      </div>`;
+    document.getElementById('mo').addEventListener('click', e => { if(e.target.id==='mo') closeM(); });
+    document.getElementById('cpf').addEventListener('submit', e => {
+      e.preventDefault();
+      const name = document.getElementById('cpn').value.trim();
+      const username = document.getElementById('cpu').value.trim();
+      const password = document.getElementById('cpp').value;
+      if (!name||!username||!password) return msg('cpe','err','모든 필드를 입력하세요.');
+      const users = DB.get('users')||[];
+      if (users.find(u=>u.username===username)) return msg('cpe','err','이미 존재하는 아이디입니다.');
+      users.push({ id:uuid(), username, name, role:'player', password, seedBalance:0, createdAt:new Date().toISOString() });
+      DB.set('users', users);
+      closeM();
+      render();
+    });
+  };
+
+  function adminPlayerDetail(playerId) {
+    const users = DB.get('users')||[];
+    const entries = DB.get('entries')||[];
+    const awards = DB.get('awards')||[];
+    const txns = DB.get('seedTxns')||[];
+    const player = users.find(u=>u.id===playerId);
+    if (!player) return '<p class="text-red-400 p-6">플레이어를 찾을 수 없습니다.</p>';
+    const gamesPlayed = [...new Set((entries.filter(e=>e.userId===playerId)).map(e=>e.gameId))].length;
+    const ua = awards.filter(a=>a.userId===playerId);
+    const rawDPI = ua.reduce((s,a)=>s+(a.dpiScore||0),0);
+    const ue2 = entries.filter(e=>e.userId===playerId);
+    const totalBuyins2 = ue2.filter(e=>e.type==='buyin').length;
+    const totalDPI = rawDPI * Math.min(1, totalBuyins2/10) + totalBuyins2*0.2 + (player.dealer||0)*0.5;
+    const pTxns = txns.filter(t=>t.userId===playerId).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
+    const txnRows = pTxns.map(t => `<tr>
+      <td class="text-slate-400 text-xs">${fmtDT(t.createdAt)}</td>
+      <td>${{charge:'<span class="text-blue-400">충전</span>',use:'<span class="text-orange-400">사용</span>',refund:'<span class="text-green-400">환불</span>'}[t.type]||t.type}</td>
+      <td class="font-mono ${t.amount>0?'text-blue-400':'text-orange-400'}">${t.amount>0?'+':''}${fmtMoney(t.amount)}</td>
+      <td class="font-mono">${fmtMoney(t.balanceAfter)}</td>
+      <td class="text-slate-400 text-sm">${t.note||'-'}</td>
+    </tr>`).join('');
+    return `
+      <div class="space-y-6">
+        <a href="#/admin/players" class="text-slate-400 hover:text-white text-sm">← 플레이어 목록</a>
+        <div class="card p-6">
+          <div class="flex items-center gap-4 mb-5">
+            <div class="w-14 h-14 rounded-full flex items-center justify-center text-xl font-bold text-green-400" style="background:#14532d33">${player.name[0]}</div>
+            <div>
+              <h1 class="text-xl font-bold">${player.name}</h1>
+              <p class="text-slate-400 text-sm">@${player.username} · 가입 ${fmtDate(player.createdAt)}</p>
+            </div>
+          </div>
+          <div class="grid grid-cols-4 gap-4">
+            <div class="stat-card"><p class="text-slate-400 text-xs">시드 잔액</p><p class="text-xl font-bold text-green-400 mt-1">${fmtMoney(player.seedBalance)}</p></div>
+            <div class="stat-card"><p class="text-slate-400 text-xs">참여 게임</p><p class="text-xl font-bold mt-1">${gamesPlayed}회</p></div>
+            <div class="stat-card"><p class="text-slate-400 text-xs">우승횟수</p><p class="text-xl font-bold text-yellow-400 mt-1">${ua.length}회</p></div>
+            <div class="stat-card"><p class="text-slate-400 text-xs">누적 DPI</p><p class="text-xl font-bold text-yellow-400 mt-1">${totalDPI.toFixed(1)}</p></div>
+          </div>
+        </div>
+        <div class="card p-6">
+          <h2 class="text-lg font-semibold mb-1">시드 수동 지급 / 차감</h2>
+          <p class="text-slate-400 text-xs mb-4">게임 상금은 순위 저장 시 자동 지급됩니다. 이 기능은 예외 상황에만 사용하세요.</p>
+          <div id="sm" class="hidden mb-3"></div>
+          <form id="sf" class="space-y-3">
+            <div class="flex gap-3 flex-wrap items-end">
+              <div style="min-width:160px">
+                <label class="text-slate-400 text-xs mb-1 block">금액 (양수=지급, 음수=차감)</label>
+                <input id="sa" type="number" class="input" placeholder="예: 3000 또는 -3000" step="1" />
+              </div>
+              <div class="flex-1" style="min-width:200px">
+                <label class="text-slate-400 text-xs mb-1 block">사유</label>
+                <input id="sn-text" type="text" class="input" placeholder="사유 입력 (선택)" />
+              </div>
+              <button type="submit" class="btn-primary whitespace-nowrap">처리</button>
+            </div>
+          </form>
+        </div>
+        <div class="card p-6">
+          <h2 class="text-lg font-semibold mb-1">딜러 DPI 보상</h2>
+          <p class="text-slate-400 text-xs mb-4">딜러 참여 1회 = +0.5 DPI · 현재 딜러 누계: <span class="text-yellow-400 font-bold">${player.dealer||0}회</span> (DPI +${((player.dealer||0)*0.5).toFixed(1)})</p>
+          <div id="dm" class="hidden mb-3"></div>
+          <form id="df" class="space-y-3">
+            <div class="flex gap-3 flex-wrap items-end">
+              <div>
+                <label class="text-slate-400 text-xs mb-1 block">딜러 횟수 추가/차감</label>
+                <input id="da" type="number" class="input" placeholder="예: 1 또는 -1" step="0.5" style="width:160px" />
+              </div>
+              <div class="flex-1" style="min-width:220px">
+                <label class="text-slate-400 text-xs mb-1 block">사유 (선택)</label>
+                <div class="flex gap-2 mb-2">
+                  <button type="button" id="dnote-game-btn" onclick="toggleDNoteMode('game')" class="text-xs px-3 py-1 rounded-full border border-green-600 text-green-400 bg-green-900/30">🎮 게임 선택</button>
+                  <button type="button" id="dnote-text-btn" onclick="toggleDNoteMode('text')" class="text-xs px-3 py-1 rounded-full border border-slate-600 text-slate-400">✏️ 직접 입력</button>
+                </div>
+                <div id="dnote-game-wrap">
+                  <select id="dn-game" class="input">
+                    <option value="">-- 게임을 선택하세요 --</option>
+                    ${(DB.get('games')||[]).sort((a,b)=>b.date.localeCompare(a.date)).map(g=>`<option value="${gameDisplayName(g)} 딜러 (${g.date})">${gameDisplayName(g)} · ${g.date}</option>`).join('')}
+                  </select>
+                </div>
+                <div id="dnote-text-wrap" class="hidden">
+                  <input id="dn-text" type="text" class="input" placeholder="예: 정기 10차 딜러" />
+                </div>
+              </div>
+              <button type="submit" class="btn-primary whitespace-nowrap">DPI 적용</button>
+            </div>
+          </form>
+        </div>
+        <div>
+          <h2 class="text-lg font-semibold mb-3">시드 거래 내역</h2>
+          <div class="card overflow-hidden">
+            <table><thead><tr><th>일시</th><th>구분</th><th>금액</th><th>잔액</th><th>내용</th></tr></thead>
+            <tbody>${txnRows||'<tr><td colspan="5" class="text-center text-slate-500 py-8">내역 없음</td></tr>'}</tbody></table>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  window.toggleDNoteMode = function(mode) {
+    const gameWrap = document.getElementById('dnote-game-wrap');
+    const textWrap = document.getElementById('dnote-text-wrap');
+    const gameBtn  = document.getElementById('dnote-game-btn');
+    const textBtn  = document.getElementById('dnote-text-btn');
+    if (!gameWrap) return;
+    if (mode === 'game') {
+      gameWrap.classList.remove('hidden'); textWrap.classList.add('hidden');
+      gameBtn.classList.add('border-green-600','text-green-400','bg-green-900/30');
+      gameBtn.classList.remove('border-slate-600','text-slate-400');
+      textBtn.classList.add('border-slate-600','text-slate-400');
+      textBtn.classList.remove('border-green-600','text-green-400','bg-green-900/30');
+    } else {
+      textWrap.classList.remove('hidden'); gameWrap.classList.add('hidden');
+      textBtn.classList.add('border-green-600','text-green-400','bg-green-900/30');
+      textBtn.classList.remove('border-slate-600','text-slate-400');
+      gameBtn.classList.add('border-slate-600','text-slate-400');
+      gameBtn.classList.remove('border-green-600','text-green-400','bg-green-900/30');
+    }
+  };
+
+  function bindPlayerSeed(playerId) {
+    const form = document.getElementById('sf');
+    if (!form) return;
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const amount = parseInt(document.getElementById('sa').value);
+      const note = (document.getElementById('sn-text')?.value.trim()) || '';
+      if (!amount || isNaN(amount)) return msg('sm','err','금액을 입력하세요.');
+      const users = DB.get('users')||[];
+      const ui = users.findIndex(u=>u.id===playerId);
+      const newBal = users[ui].seedBalance + amount;
+      if (newBal < 0) return msg('sm','err','잔액이 부족합니다.');
+      users[ui].seedBalance = newBal;
+      DB.set('users', users);
+      const txns = DB.get('seedTxns')||[];
+      txns.push({ id:uuid(), userId:playerId, type:amount>0?'charge':'use', amount, balanceAfter:newBal, note:note||(amount>0?'관리자 지급':'관리자 차감'), entryId:null, createdAt:new Date().toISOString() });
+      DB.set('seedTxns', txns);
+      if (CU.id === playerId) syncUser();
+      render();
+    });
+    const dealerForm = document.getElementById('df');
+    if (!dealerForm) return;
+    dealerForm.addEventListener('submit', e => {
+      e.preventDefault();
+      const delta = parseFloat(document.getElementById('da').value);
+      const dnGameWrap = document.getElementById('dnote-game-wrap');
+      const dnGame = document.getElementById('dn-game');
+      const dnText = document.getElementById('dn-text');
+      let note = '';
+      if (dnGameWrap && !dnGameWrap.classList.contains('hidden')) {
+        note = dnGame ? dnGame.value : '';
+      } else {
+        note = dnText ? dnText.value.trim() : '';
+      }
+      note = note || '딜러 DPI 보상';
+      if (!delta || isNaN(delta)) return msg('dm','err','횟수를 입력하세요.');
+      const users = DB.get('users')||[];
+      const ui = users.findIndex(u=>u.id===playerId);
+      const prev = users[ui].dealer || 0;
+      const next = prev + delta;
+      if (next < 0) return msg('dm','err','딜러 횟수가 0 미만이 될 수 없습니다.');
+      users[ui].dealer = Math.round(next*10)/10;
+      DB.set('users', users);
+      msg('dm','ok',`딜러 횟수 ${delta>0?'+':''}${delta}회 적용 → 총 ${next}회 (DPI +${(next*0.5).toFixed(1)})`);
+      setTimeout(()=>render(), 1200);
+    });
+  }
+
+  function adminSeedPage() {
+    const users = (DB.get('users')||[]).filter(u=>u.role==='player');
+    const txns = DB.get('seedTxns')||[];
+    const totalSeed = users.reduce((s,u)=>s+u.seedBalance,0);
+    const totalCharged = txns.filter(t=>t.type==='charge').reduce((s,t)=>s+t.amount,0);
+    const rows = users.sort((a,b)=>b.seedBalance-a.seedBalance).map(u => {
+      const ut = txns.filter(t=>t.userId===u.id);
+      const charged = ut.filter(t=>t.type==='charge').reduce((s,t)=>s+t.amount,0);
+      const used = ut.filter(t=>t.type==='use').reduce((s,t)=>s+Math.abs(t.amount),0);
+      return `<tr>
+        <td><a href="#/admin/players/${u.id}" class="text-green-400 hover:underline font-medium">${u.name}</a></td>
+        <td class="text-slate-400">@${u.username}</td>
+        <td class="text-green-400 font-bold font-mono">${fmtMoney(u.seedBalance)}</td>
+        <td class="text-blue-400 font-mono">${fmtMoney(charged)}</td>
+        <td class="text-orange-400 font-mono">${fmtMoney(used)}</td>
+      </tr>`;
+    }).join('');
+    return `
+      <div class="space-y-6">
+        <h1 class="text-2xl font-bold">💰 시드 현황</h1>
+        <div class="grid grid-cols-3 gap-4">
+          <div class="stat-card"><p class="text-slate-400 text-xs">전체 시드 잔액</p><p class="text-2xl font-bold text-yellow-400 mt-1">${fmtMoney(totalSeed)}</p></div>
+          <div class="stat-card"><p class="text-slate-400 text-xs">총 충전 누계</p><p class="text-xl font-bold text-blue-400 mt-1">${fmtMoney(totalCharged)}</p></div>
+          <div class="stat-card"><p class="text-slate-400 text-xs">플레이어 수</p><p class="text-2xl font-bold mt-1">${users.length}명</p></div>
+        </div>
+        <div class="card overflow-hidden">
+          <table><thead><tr><th>이름</th><th>아이디</th><th>현재 잔액</th><th>총 충전</th><th>총 사용</th></tr></thead>
+          <tbody>${rows}</tbody></table>
+        </div>
+      </div>`;
+  }
+
+  (async function boot() {
+    document.getElementById('app').innerHTML = `
+      <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px">
+        <div style="width:48px;height:48px;border:4px solid #334155;border-top-color:#4ade80;border-radius:50%;animation:spin 0.8s linear infinite"></div>
+        <p style="color:#94a3b8;font-size:14px">데이터 불러오는 중...</p>
+      </div>
+      <style>@keyframes spin{to{transform:rotate(360deg)}}</style>`;
+
+    const { data, error } = await _sb.from('app_data').select('key, value');
+    if (error) {
+      document.getElementById('app').innerHTML =
+        `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#f87171;font-size:14px;text-align:center;padding:20px">
+          ⚠️ 서버 연결 오류<br><small style="color:#94a3b8;margin-top:8px;display:block">${error.message}</small>
+        </div>`;
+      return;
+    }
+    (data || []).forEach(row => { _mem[row.key] = row.value; });
+
+    initDB();
+
+    _sb.channel('app_data')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_data' }, payload => {
+        if (payload.new && payload.new.key) {
+          _mem[payload.new.key] = payload.new.value;
+          render();
+        }
+      })
+      .subscribe();
+
+    render();
+  })();
+  </script>
+</body>
+</html>
