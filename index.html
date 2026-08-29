@@ -234,7 +234,7 @@
     // 정기 6차 (16 entries) 26-01-17
     [uSanghun,uBobae,uYerim,uJiwon,uKimik,uJinuk,uIntae,uJaehyun].forEach(u=>E(gJ06,u));
     [uJinuk,uJinuk,uJinuk,uYerim,uIntae,uJaehyun,uSanghun,uSanghun].forEach(u=>E(gJ06,u,'rebuy'));
-    // 정기 7차 (24 entries)
+    // 정기 7차 (24 entries) — 한용은 8차부터 합류 (PDF 확인)
     [uSanghun,uBobae,uYerim,uJiwon,uKimik,uJinuk,uIntae,uJaehyun,uJaeik,uEunchae,uSomang].forEach(u=>E(gJ07,u));
     [uJaeik,uJaeik,uBobae,uBobae,uJinuk,uJinuk,uSomang,uSomang,uJaehyun,uJaehyun,uEunchae,uIntae,uYerim].forEach(u=>E(gJ07,u,'rebuy'));
     // 정기 8차 (20 entries)
@@ -263,13 +263,13 @@
     // 정기 16차 (11 entries)
     [uKimik,uYerim,uHanyong,uJiwon,uJinuk,uBobae,uIntae].forEach(u=>E(gJ16,u,null,u===uKimik||u===uYerim?'seed':'cash'));
     [uKimik,uKimik,uJinuk,uJinuk].forEach(u=>E(gJ16,u,'rebuy',u===uKimik?'seed':'cash'));
-    // 깐부 1차
+    // 깐부 1차 (8 entries) — 김익 포함, 인태 rebuy 제거
     [uJinuk,uJiwon,uIntae,uYerim,uEunchae,uBobae,uKimik].forEach(u=>E(gK01,u,null,u===uYerim||u===uKimik?'seed':'cash'));
     E(gK01,uYerim,'rebuy','seed');
-    // 깐부 2차
+    // 깐부 2차 (8 entries) — 은채 제외, 인태 rebuy 추가
     [uJinuk,uJiwon,uIntae,uYerim,uBobae,uKimik,uHanyong].forEach(u=>E(gK02,u,null,u===uYerim||u===uKimik?'seed':'cash'));
     E(gK02,uIntae,'rebuy','cash');
-    // 깐부 3차
+    // 깐부 3차 (8 entries) — 한용·은채·인태·예림 제외, 종민 추가
     [uJinuk,uJiwon,uBobae,uKimik,uJongmin].forEach(u=>E(gK03,u,null,u===uKimik?'seed':'cash'));
     [uJinuk,uBobae,uKimik].forEach(u=>E(gK03,u,'rebuy',u===uKimik?'seed':'cash'));
     // 정기 17차 (12 entries) 26-03-14
@@ -284,66 +284,89 @@
 
     DB.set('entries',entries);
 
-    // ── 수상 내역 ──
+    // ── 수상 내역 (스프레드시트 기준 정확한 게임별 DPI 점수) ──
+    // 공식: 0.3 × 게임총엔트리 × 게임시간 × 비율 / 개인엔트리수
     function AW(gid,uid,rank,prize,dpi,date){
       return {id:uuid(),gameId:gid,userId:uid,rank,dpiScore:dpi,prizeAmount:prize||0,createdAt:date};
     }
     DB.set('awards',[
+      // 정기 1차 (찹) — 도현·예림
       AW(gJ01,uDohyun,null,0,    4.8, '2025-12-13'),
       AW(gJ01,uYerim, null,0,    4.8, '2025-12-13'),
+      // 정기 2차 (찹) — 김익·진욱
       AW(gJ02,uKimik, null,0,    6.6, '2025-12-13'),
       AW(gJ02,uJinuk, null,0,    2.8, '2025-12-13'),
+      // 정기 3차 (찹) — 김익·지원·지현
       AW(gJ03,uKimik, null,0,    4.8, '2025-12-13'),
       AW(gJ03,uJiwon, null,0,    4.8, '2025-12-13'),
       AW(gJ03,uJihyun,null,0,    4.8, '2025-12-13'),
+      // 정기 4차 (찹) — 진욱·인태
       AW(gJ04,uJinuk, null,0,    10.2,'2025-12-20'),
       AW(gJ04,uIntae, null,0,    2.8, '2025-12-20'),
+      // 정기 5차 (찹) — 보배·진욱
       AW(gJ05,uBobae, null,0,    3.5, '2025-12-20'),
       AW(gJ05,uJinuk, null,0,    8.4, '2025-12-20'),
+      // 정기 6차 (찹) — 재현·지원
       AW(gJ06,uJaehyun,null,0,   4.0, '2026-01-17'),
       AW(gJ06,uJiwon,  null,0,   9.6, '2026-01-17'),
+      // 정기 7차 (찹) — 재익·보배
       AW(gJ07,uJaeik, null,0,    4.0, '2026-01-17'),
       AW(gJ07,uBobae, null,0,    4.0, '2026-01-17'),
+      // 정기 8차 (찹) — 김익·인태
       AW(gJ08,uKimik, null,0,    12.0,'2026-01-17'),
       AW(gJ08,uIntae, null,0,    12.0,'2026-01-17'),
+      // 정기 9차 (찹) — 소망·보배
       AW(gJ09,uSomang,null,0,    5.4, '2026-01-17'),
       AW(gJ09,uBobae, null,0,    5.4, '2026-01-17'),
+      // 정기 10차 (순위) — 김익1·재익2·진욱3
       AW(gJ10,uKimik,1, 0,       18.0,'2026-01-31'),
       AW(gJ10,uJaeik,2, 0,       10.8,'2026-01-31'),
       AW(gJ10,uJinuk,3, 0,       3.0, '2026-01-31'),
+      // 정기 11차 (순위) — 김익1·예림2·소망3
       AW(gJ11,uKimik, 1,0,       2.2, '2026-01-31'),
       AW(gJ11,uYerim, 2,0,       4.7, '2026-01-31'),
       AW(gJ11,uSomang,3,0,       1.3, '2026-01-31'),
+      // 정기 12차 (순위) — 보배1·김익2·지원3
       AW(gJ12,uBobae,1, 0,       9.0, '2026-02-14'),
       AW(gJ12,uKimik,2, 0,       5.4, '2026-02-14'),
       AW(gJ12,uJiwon,3, 0,       1.5, '2026-02-14'),
+      // 정기 13차 (순위) — 김익1·지원2·정욱3
       AW(gJ13,uKimik,  1,0,      6.8, '2026-02-14'),
       AW(gJ13,uJiwon,  2,0,      1.7, '2026-02-14'),
       AW(gJ13,uJeonguk,3,0,      2.7, '2026-02-14'),
+      // 정기 14차 (순위) — 예림1·소망2·은채3
       AW(gJ14,uYerim,  1,0,      7.4, '2026-02-18'),
       AW(gJ14,uSomang, 2,0,      10.7,'2026-02-18'),
       AW(gJ14,uEunchae,3,0,      7.1, '2026-02-18'),
+      // 정기 15차 (순위) — 진욱1·김익2·재익3
       AW(gJ15,uJinuk,1, 0,       4.8, '2026-02-28'),
       AW(gJ15,uKimik,2, 0,       2.9, '2026-02-28'),
       AW(gJ15,uJaeik,3, 0,       0.8, '2026-02-28'),
+      // 정기 16차 (순위) — 예림1·인태2·보배3
       AW(gJ16,uYerim, 1,0,       11.6,'2026-02-28'),
       AW(gJ16,uIntae, 2,0,       6.9, '2026-02-28'),
       AW(gJ16,uBobae, 3,0,       4.6, '2026-02-28'),
+      // 깐부 1차 (찹) — 은채·보배 5,000원
       AW(gK01,uEunchae,null,5000, 2.4,'2026-02-28'),
       AW(gK01,uBobae,  null,5000, 2.4,'2026-02-28'),
+      // 깐부 2차 (찹) — 예림·김익 5,000원
       AW(gK02,uYerim,null,5000,   2.4,'2026-02-28'),
       AW(gK02,uKimik,null,5000,   2.4,'2026-02-28'),
+      // 깐부 3차 (찹) — 진욱·보배 5,000원
       AW(gK03,uJinuk,null,5000,   2.4,'2026-02-28'),
       AW(gK03,uBobae,null,5000,   2.4,'2026-02-28'),
+      // 정기 17차 (순위) — 김익1 1만·소망2 5천
       AW(gJ17,uKimik, 1,10000,    7.2,'2026-03-14'),
       AW(gJ17,uSomang,2,5000,     4.3,'2026-03-14'),
+      // 깐부 4차 (찹) — 보배·은채 1만원
       AW(gK04,uBobae,  null,10000,3.6,'2026-03-14'),
       AW(gK04,uEunchae,null,10000,3.6,'2026-03-14'),
+      // 파인애플 1차 (순위) — 진욱1 1만·김익2
       AW(gP01,uJinuk,1,10000,     2.1,'2026-03-14'),
       AW(gP01,uKimik,2,0,         1.3,'2026-03-14'),
     ]);
 
-    // ── 시드 내역 ──
+    // ── 시드 내역 (현재 잔액 기준) ──
     DB.set('seedTxns',[
       {id:uuid(),userId:uKimik,  type:'charge',amount:10000,balanceAfter:10000,note:'시드 현황 기준',entryId:null,createdAt:'2026-03-25'},
       {id:uuid(),userId:uBobae,  type:'charge',amount:50000,balanceAfter:50000,note:'시드 현황 기준',entryId:null,createdAt:'2026-03-25'},
@@ -535,7 +558,7 @@
               ${statusBadge(g.status)}
               <span class="text-xs text-slate-500">${awardTypeLabel(g.awardType)}</span>
             </div>
-            <div class="text-slate-400 text-sm">${g.date} · ${g.type==='링게임'?'블라인드 200/500':g.duration+'시간'} · 바인 ${fmtMoney(g.buyInAmount)}</div>
+            <div class="text-slate-400 text-sm">${g.date} · ${g.type==='링게임'?'블라인드 200/500':g.duration+'시간'} · ${g.type==='링게임'?'1,000원=1만칩':'바인 '+fmtMoney(g.buyInAmount)}</div>
             <div class="text-slate-500 text-xs">${cnt}명 참가</div>
           </div>
           ${isActive
@@ -607,7 +630,7 @@
                 ${statusBadge(g.status)}
                 <span class="text-xs text-slate-500">${awardTypeLabel(g.awardType)}</span>
               </div>
-              <div class="text-slate-400 text-sm">${g.date} · ${g.type==='링게임'?'블라인드 200/500':g.duration+'시간'} · 바인 ${fmtMoney(g.buyInAmount)}</div>
+              <div class="text-slate-400 text-sm">${g.date} · ${g.type==='링게임'?'블라인드 200/500':g.duration+'시간'} · ${g.type==='링게임'?'1,000원=1만칩':'바인 '+fmtMoney(g.buyInAmount)}</div>
               <div class="text-slate-500 text-xs">${cnt}명 참가 (엔트리 ${ge.length}개)</div>
             </div>
           </div>
@@ -675,9 +698,11 @@
                 ${game.type==='링게임'
                   ? `<div><span class="text-slate-400">블라인드</span> <span class="ml-2">200/500</span></div>`
                   : `<div><span class="text-slate-400">게임시간</span> <span class="ml-2">${game.duration}시간</span></div>`}
-                <div><span class="text-slate-400">바인금액</span> <span class="ml-2 text-green-400 font-semibold">${fmtMoney(game.buyInAmount)}</span></div>
                 ${game.type==='링게임'
-                  ? `<div><span class="text-slate-400">스타팅칩</span> <span class="ml-2 text-yellow-400 font-semibold">50,000칩</span></div>`
+                  ? `<div><span class="text-slate-400">칩 교환</span> <span class="ml-2 text-green-400 font-semibold">1,000원 = 10,000칩</span></div>`
+                  : `<div><span class="text-slate-400">바인금액</span> <span class="ml-2 text-green-400 font-semibold">${fmtMoney(game.buyInAmount)}</span></div>`}
+                ${game.type==='링게임'
+                  ? `<div><span class="text-slate-400">총 바인</span> <span class="ml-2 text-yellow-400 font-semibold">${fmtMoney(ge.reduce((s,e)=>s+(e.amount||0),0))}</span></div>`
                   : `<div><span class="text-slate-400">수상방식</span> <span class="ml-2">${awardTypeLabel(game.awardType)}</span></div>`}
                 <div><span class="text-slate-400">참가현황</span> <span class="ml-2">${participants.length}명</span></div>
                 ${game.type==='링게임'
@@ -748,13 +773,35 @@
     const game = (DB.get('games')||[]).find(g=>g.id===gameId);
     const entries = DB.get('entries')||[];
     const joined = entries.some(e=>e.gameId===gameId&&e.userId===CU.id);
+
+    // 링게임: 천원 단위로 직접 입력 (1,000원 = 10,000칩)
+    if (game.type === '링게임') {
+      const defAmt = game.buyInAmount || 9000;
+      document.getElementById('modal-root').innerHTML = `
+        <div class="modal-overlay" id="mo">
+          <div class="modal">
+            <h3 class="text-lg font-bold mb-1">${joined?'리바인':'바인'} 신청</h3>
+            <p class="text-yellow-400 text-sm mb-3">🎰 1,000원 = 10,000칩 · 블라인드 200/500</p>
+            <label class="text-slate-400 text-xs mb-1 block">바인 금액 (천원 단위)</label>
+            <input type="number" id="ringAmt" class="input w-full mb-2" step="1000" min="1000" value="${defAmt}"
+              oninput="window.updRing()" />
+            <p class="text-sm mb-3">받을 칩: <span id="ringChips" class="text-yellow-400 font-bold font-mono">${(defAmt*10).toLocaleString()}</span>칩</p>
+            <p class="text-slate-400 text-sm mb-4">시드 잔액: <span class="font-mono">${fmtMoney(CU.seedBalance)}</span></p>
+            <button onclick="doBuyin('${gameId}','seed')" class="btn-primary w-full text-center mb-3">🌱 시드 사용</button>
+            <button onclick="doBuyin('${gameId}','cash')" class="btn-secondary w-full text-center mb-3">💵 현금 참가 (오프라인 수금)</button>
+            <button onclick="closeM()" class="w-full text-slate-500 text-sm mt-1 text-center">취소</button>
+          </div>
+        </div>`;
+      document.getElementById('mo').addEventListener('click', e => { if(e.target.id==='mo') closeM(); });
+      return;
+    }
+
     const canSeed = CU.seedBalance >= game.buyInAmount;
     document.getElementById('modal-root').innerHTML = `
       <div class="modal-overlay" id="mo">
         <div class="modal">
           <h3 class="text-lg font-bold mb-1">${joined?'리바인':'바인'} 신청</h3>
           <p class="text-slate-400 text-sm mb-2">참가 금액: <span class="text-green-400 font-bold">${fmtMoney(game.buyInAmount)}</span></p>
-          ${game.type==='링게임'?`<p class="text-yellow-400 text-sm mb-2">🎰 스타팅칩: <strong>50,000칩</strong> · 블라인드 200/500</p>`:''}
           <p class="text-slate-400 text-sm mb-4">시드 잔액: <span class="font-mono">${fmtMoney(CU.seedBalance)}</span></p>
           ${canSeed
             ? `<button onclick="doBuyin('${gameId}','seed')" class="btn-primary w-full text-center mb-3">🌱 시드 사용 → 잔액 ${fmtMoney(CU.seedBalance-game.buyInAmount)}</button>`
@@ -766,22 +813,38 @@
       </div>`;
     document.getElementById('mo').addEventListener('click', e => { if(e.target.id==='mo') closeM(); });
   };
+  window.updRing = function() {
+    const el = document.getElementById('ringAmt');
+    const out = document.getElementById('ringChips');
+    if (!el || !out) return;
+    const v = Math.max(0, +el.value || 0);
+    out.textContent = (v * 10).toLocaleString();
+  };
   window.closeM = () => { document.getElementById('modal-root').innerHTML = ''; };
 
   window.doBuyin = function(gameId, payment) {
     const game = (DB.get('games')||[]).find(g=>g.id===gameId);
+
+    // 참가 금액 결정: 링게임은 입력값, 그 외는 게임 고정 바인
+    let amount = game.buyInAmount;
+    if (game.type === '링게임') {
+      amount = +(document.getElementById('ringAmt')?.value) || 0;
+      if (amount <= 0 || amount % 1000 !== 0) { alert('바인 금액을 천원 단위로 입력하세요.'); return; }
+    }
+    if (payment === 'seed' && CU.seedBalance < amount) { alert('시드 잔액이 부족합니다.'); return; }
+
     const entries = DB.get('entries')||[];
     const joined = entries.some(e=>e.gameId===gameId&&e.userId===CU.id);
     const eid = uuid();
-    entries.push({ id:eid, gameId, userId:CU.id, type:joined?'rebuy':'buyin', payment, amount:game.buyInAmount, createdAt:new Date().toISOString() });
+    entries.push({ id:eid, gameId, userId:CU.id, type:joined?'rebuy':'buyin', payment, amount, createdAt:new Date().toISOString() });
     DB.set('entries', entries);
     if (payment==='seed') {
       const users = DB.get('users')||[];
       const ui = users.findIndex(u=>u.id===CU.id);
-      users[ui].seedBalance -= game.buyInAmount;
+      users[ui].seedBalance -= amount;
       DB.set('users', users);
       const txns = DB.get('seedTxns')||[];
-      txns.push({ id:uuid(), userId:CU.id, type:'use', amount:-game.buyInAmount, balanceAfter:users[ui].seedBalance, note:`${gameDisplayName(game)} ${joined?'리바인':'바인'}`, entryId:eid, createdAt:new Date().toISOString() });
+      txns.push({ id:uuid(), userId:CU.id, type:'use', amount:-amount, balanceAfter:users[ui].seedBalance, note:`${gameDisplayName(game)} ${joined?'리바인':'바인'}`, entryId:eid, createdAt:new Date().toISOString() });
       DB.set('seedTxns', txns);
       syncUser();
     }
@@ -836,7 +899,7 @@
       const text = await res.text();
       const lines = text.trim().split('\n');
       const players = [];
-      let expectedRank = 1;
+      let expectedRank = 1; // 1→2→3 순서대로만 수집 (중복·역순 차단)
       for (const line of lines) {
         if (expectedRank > 16) break;
         const cols = line.split(',').map(c => c.replace(/^"|"$/g, '').trim());
@@ -865,11 +928,13 @@
     }
   }
 
+  // 5분마다 자동 갱신
   setInterval(() => loadSheetsRanking(false), 5 * 60 * 1000);
 
   function rankingPage() {
     const users = DB.get('users') || [];
 
+    // 시트 데이터가 없으면 즉시 로드 트리거 (로딩 화면 표시)
     if (!_sheetsCache.data) {
       loadSheetsRanking(true);
       return `
@@ -890,6 +955,7 @@
     const rows = _sheetsCache.data.map((p, i) => {
       const user = users.find(u => u.name === p.name);
       const isMe = user && user.id === CU.id;
+      const penalty = p.expectedDpi > 0 && p.dpi < p.expectedDpi;
       return `<tr ${isMe ? 'style="background:#16a34a18"' : ''}>
         <td class="${i<3?['rank-1','rank-2 text-slate-300','rank-3'][i]:'text-slate-400'} font-bold">${icons[i]||p.rank}</td>
         <td class="font-medium">${p.name}${isMe?' <span class="text-green-400 text-xs">(나)</span>':''}</td>
@@ -973,6 +1039,7 @@
       </div>`;
   }
   function bindProfile() {
+    // 아이디 변경
     const idForm = document.getElementById('id-form');
     if (idForm) {
       idForm.addEventListener('submit', e => {
@@ -993,6 +1060,7 @@
         msg('id-msg','ok','아이디가 변경되었습니다. 다음 로그인부터 새 아이디를 사용하세요.');
       });
     }
+    // 비밀번호 변경
     const form = document.getElementById('pw-form');
     if (!form) return;
     form.addEventListener('submit', e => {
@@ -1176,6 +1244,7 @@
     if (game.status === 'closed') {
       const rankEmoji = r => r===1?'🥇':r===2?'🥈':r===3?'🥉':'';
       if (ga.length > 0) {
+        // 결과 표시 (링게임 vs 토너먼트)
         let aRows;
         if (game.awardType === 'ring') {
           aRows = ga.sort((a,b)=>b.prizeAmount-a.prizeAmount).map(a => {
@@ -1209,6 +1278,7 @@
         }).join('');
 
         if (game.awardType === 'ring') {
+          // 링게임 칩 정산 입력
           const chipRows = participants.map(uid => {
             const user = users.find(u=>u.id===uid);
             return `<div class="flex items-center gap-3 p-2 rounded-lg" style="background:#0f172a">
@@ -1240,6 +1310,7 @@
                 <div class="space-y-1 mb-4">${chopInputs}</div>
                 <button onclick="saveAwards('${gameId}','chop')" class="btn-primary">저장</button></div>`;
           } else if (game.awardType === 'team') {
+            // 깐부 팀전: 1등팀/2등팀/3등팀 각 2명
             const tier = getPrizeTier(game.type, ge.length);
             const [p1,p2,p3] = tier.prizes;
             const teamTierInfo = `
@@ -1269,6 +1340,7 @@
               ${teamRow(3,'🥉 3등팀','#fb923c')}
               <button onclick="saveAwards('${gameId}','team')" class="btn-primary mt-2">저장</button></div>`;
           } else {
+            // rank (정기, 파인애플, 테스트, 대회)
             const tier = getPrizeTier(game.type, ge.length);
             const [p1,p2,p3] = tier.prizes;
             const tierInfo = `
@@ -1351,8 +1423,7 @@
           </div>
           <div class="mt-2 flex items-center justify-between text-sm">
             <span class="text-slate-400">시드 결제</span>
-            <span class="text-blue-400 font-mono">${fmtMoney(ge.filter
-(e=>e.payment==='seed').reduce((s,e)=>s+e.amount,0))}</span>
+            <span class="text-blue-400 font-mono">${fmtMoney(ge.filter(e=>e.payment==='seed').reduce((s,e)=>s+e.amount,0))}</span>
           </div>
           <div class="mt-1 flex items-center justify-between text-sm">
             <span class="text-slate-400">현금 결제</span>
@@ -1384,6 +1455,7 @@
     window.location.hash = '#/admin/games';
   };
 
+  // 관리자 엔트리 수동 추가
   window.adminAddEntry = function(gameId, userId, type) {
     const game = (DB.get('games')||[]).find(g=>g.id===gameId);
     const user = (DB.get('users')||[]).find(u=>u.id===userId);
@@ -1423,6 +1495,7 @@
     render();
   };
 
+  // 관리자 엔트리 수동 삭제 — 결제 방식 선택
   window.adminRemoveEntry = function(gameId, userId, type) {
     const entries = DB.get('entries')||[];
     const userEntries = [...entries].filter(e=>e.gameId===gameId&&e.userId===userId&&e.type===type);
@@ -1481,6 +1554,7 @@
     const entries = DB.get('entries')||[];
     const awards = DB.get('awards')||[];
     const ge = entries.filter(e=>e.gameId===gameId);
+    // 공식: 0.3 × 총엔트리 × 게임시간 × 비율 / 개인엔트리수
     const totalEntryScore = ge.length * game.duration * 0.3;
     const totalPrize = ge.length * game.buyInAmount;
 
@@ -1494,6 +1568,7 @@
         awards.push({ id:uuid(), gameId, userId:uid, rank:null, dpiScore:dpi, prizeAmount:prize, createdAt:new Date().toISOString() });
       });
     } else if (type==='team') {
+      // 깐부 팀전: 1~3등 팀, 각 2명, 상금 ÷2
       const tier = getPrizeTier(game.type, ge.length);
       const tierPrizes = tier.prizes;
       const dpiRatios = [0.5, 0.3, 0.2];
@@ -1502,7 +1577,7 @@
       teamSlots.forEach(([rank, idA, idB], i) => {
         const uA = document.getElementById(idA)?.value;
         const uB = document.getElementById(idB)?.value;
-        if (!uA && !uB) return;
+        if (!uA && !uB) return; // 비어있으면 스킵
         const prizeEach = Math.floor((tierPrizes[i]||0) / 2);
         [uA, uB].filter(Boolean).forEach(uid => {
           const playerEntries = ge.filter(e=>e.userId===uid).length || 1;
@@ -1513,6 +1588,7 @@
       });
       if (!saved) { alert('1등팀을 선택하세요.'); return; }
     } else {
+      // rank (정기, 파인애플, 테스트, 대회)
       const tier = getPrizeTier(game.type, ge.length);
       const tierPrizes = tier.prizes;
       const r1 = document.getElementById('r1')?.value;
@@ -1528,11 +1604,12 @@
       });
     }
     DB.set('awards', awards);
+    // 시드 자동 지급 (awardId로 중복 방지)
     const users = DB.get('users')||[];
     const txns = DB.get('seedTxns')||[];
     const gameName = gameDisplayName(game) + ` (${game.date})`;
     awards.filter(a => a.gameId === gameId && a.prizeAmount > 0).forEach(a => {
-      if (txns.some(t => t.awardId === a.id)) return;
+      if (txns.some(t => t.awardId === a.id)) return; // 이미 지급됨
       const ui = users.findIndex(u => u.id === a.userId);
       if (ui < 0) return;
       users[ui].seedBalance = (users[ui].seedBalance||0) + a.prizeAmount;
@@ -1546,6 +1623,9 @@
     render();
   };
 
+  // ============================
+  // 링게임 칩 정산
+  // ============================
   window.saveRingResults = function(gameId) {
     const game = (DB.get('games')||[]).find(g=>g.id===gameId);
     const entries = DB.get('entries')||[];
@@ -1553,6 +1633,7 @@
     const participants = [...new Set(ge.map(e=>e.userId))];
     const awards = DB.get('awards')||[];
     const gameName = gameDisplayName(game) + ` (${game.date})`;
+
     const newAwards = [];
     participants.forEach(uid => {
       const chips = Math.max(0, +document.getElementById('chip_'+uid)?.value || 0);
@@ -1560,8 +1641,11 @@
       const aid = uuid();
       newAwards.push({ id:aid, gameId, userId:uid, rank:null, chips, dpiScore:0, prizeAmount:seeds, createdAt:new Date().toISOString() });
     });
+
     awards.push(...newAwards);
     DB.set('awards', awards);
+
+    // 시드 지급
     const users = DB.get('users')||[];
     const txns = DB.get('seedTxns')||[];
     newAwards.filter(a => a.prizeAmount > 0).forEach(a => {
@@ -1579,6 +1663,9 @@
     render();
   };
 
+  // ============================
+  // 시드 재지급 확인 (수동 복구용)
+  // ============================
   window.repayAwardSeeds = function(gameId) {
     const game = (DB.get('games')||[]).find(g=>g.id===gameId);
     const allAwards = (DB.get('awards')||[]).filter(a=>a.gameId===gameId && a.prizeAmount>0);
@@ -1586,9 +1673,10 @@
     const txns = DB.get('seedTxns')||[];
     const users = DB.get('users')||[];
     const gameName = gameDisplayName(game) + ` (${game.date})`;
+
     let count = 0;
     allAwards.forEach(a => {
-      if (a.id && txns.some(t=>t.awardId===a.id)) return;
+      if (a.id && txns.some(t=>t.awardId===a.id)) return; // 이미 지급됨
       const ui = users.findIndex(u=>u.id===a.userId);
       if (ui<0) return;
       users[ui].seedBalance = (users[ui].seedBalance||0) + a.prizeAmount;
@@ -1600,6 +1688,7 @@
         entryId:null, createdAt:new Date().toISOString() });
       count++;
     });
+
     if (count === 0) { alert('이미 모든 상금이 지급된 상태입니다.'); return; }
     DB.set('users', users);
     DB.set('seedTxns', txns);
@@ -1607,6 +1696,9 @@
     render();
   };
 
+  // ============================
+  // ADMIN PLAYERS
+  // ============================
   function adminPlayersPage() {
     const users = (DB.get('users')||[]).filter(u=>u.role==='player');
     const entries = DB.get('entries')||[];
@@ -1669,6 +1761,9 @@
     });
   };
 
+  // ============================
+  // ADMIN PLAYER DETAIL
+  // ============================
   function adminPlayerDetail(playerId) {
     const users = DB.get('users')||[];
     const entries = DB.get('entries')||[];
@@ -1766,6 +1861,7 @@
       </div>`;
   }
 
+  // 딜러 사유 입력 모드 토글
   window.toggleDNoteMode = function(mode) {
     const gameWrap = document.getElementById('dnote-game-wrap');
     const textWrap = document.getElementById('dnote-text-wrap');
@@ -1807,6 +1903,8 @@
       if (CU.id === playerId) syncUser();
       render();
     });
+
+    // 딜러 DPI 처리
     const dealerForm = document.getElementById('df');
     if (!dealerForm) return;
     dealerForm.addEventListener('submit', e => {
@@ -1830,11 +1928,15 @@
       if (next < 0) return msg('dm','err','딜러 횟수가 0 미만이 될 수 없습니다.');
       users[ui].dealer = Math.round(next*10)/10;
       DB.set('users', users);
+      // DPI 변경 내역을 로그로 남기기 위해 awards에 별도 기록 대신 note로 표시
       msg('dm','ok',`딜러 횟수 ${delta>0?'+':''}${delta}회 적용 → 총 ${next}회 (DPI +${(next*0.5).toFixed(1)})`);
       setTimeout(()=>render(), 1200);
     });
   }
 
+  // ============================
+  // ADMIN SEED OVERVIEW
+  // ============================
   function adminSeedPage() {
     const users = (DB.get('users')||[]).filter(u=>u.role==='player');
     const txns = DB.get('seedTxns')||[];
@@ -1867,7 +1969,11 @@
       </div>`;
   }
 
+  // ============================
+  // BOOT
+  // ============================
   (async function boot() {
+    // 로딩 화면
     document.getElementById('app').innerHTML = `
       <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px">
         <div style="width:48px;height:48px;border:4px solid #334155;border-top-color:#4ade80;border-radius:50%;animation:spin 0.8s linear infinite"></div>
@@ -1875,6 +1981,7 @@
       </div>
       <style>@keyframes spin{to{transform:rotate(360deg)}}</style>`;
 
+    // Supabase에서 전체 데이터 로드
     const { data, error } = await _sb.from('app_data').select('key, value');
     if (error) {
       document.getElementById('app').innerHTML =
@@ -1885,8 +1992,10 @@
     }
     (data || []).forEach(row => { _mem[row.key] = row.value; });
 
+    // 초기 데이터 세팅 (최초 1회)
     initDB();
 
+    // Realtime 구독 — 다른 사용자가 데이터 바꾸면 자동 반영
     _sb.channel('app_data')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'app_data' }, payload => {
         if (payload.new && payload.new.key) {
