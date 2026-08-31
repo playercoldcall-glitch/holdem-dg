@@ -98,6 +98,13 @@
   function fmtMoney(n) { return Number(n || 0).toLocaleString('ko-KR') + '원'; }
   function fmtDate(d) { if (!d) return '-'; return String(d).slice(0, 10); }
   function fmtChips(n) { return Number(n || 0).toLocaleString('ko-KR') + '칩'; }
+  // 링게임 정산 레이크(수수료) 비율 — 남은 칩→시드 환전 시 이만큼 공제
+  const RING_RAKE = 0.30;
+  // 칩 → 시드 환전 (1만칩=1,000시드, 1만칩 단위 미만 절사) 후 레이크 공제한 실지급 시드
+  function ringChipsToSeed(chips) {
+    const gross = Math.floor((Math.max(0, chips) || 0) / 10000) * 1000;
+    return Math.floor(gross * (1 - RING_RAKE));
+  }
   // 게임 표시 이름: 링게임은 "MM월DD일 링게임", 나머지는 "유형 N차"
   function gameDisplayName(game) {
     if (!game) return '';
@@ -737,7 +744,7 @@
             </div>
           </div>
           ${isRing
-            ? `<div class="mt-3 pt-3 border-t border-slate-700 text-sm text-slate-400 text-center">💡 게임 종료 후 관리자가 남은 칩을 기입하면 시드로 자동 정산됩니다</div>`
+            ? `<div class="mt-3 pt-3 border-t border-slate-700 text-sm text-slate-400 text-center">💡 게임 종료 후 관리자가 남은 칩을 기입하면 시드로 자동 정산됩니다 (레이크 ${Math.round(RING_RAKE*100)}% 공제)</div>`
             : `<div class="mt-3 pt-3 border-t border-slate-700 flex items-center justify-between">
                  <span class="text-slate-400 text-sm">총 상금풀</span>
                  <span class="text-yellow-400 font-bold text-xl">${fmtMoney(totalPrize)}</span>
@@ -1278,15 +1285,18 @@
             return `<div class="flex items-center gap-3 p-2 rounded-lg" style="background:#0f172a">
               <span class="font-medium w-16 shrink-0">${user?.name||uid}</span>
               <input type="number" id="chip_${uid}" class="input flex-1" placeholder="남은 칩" min="0" step="1000"
-                oninput="const s=Math.floor((+this.value||0)/10000)*1000;document.getElementById('seed_${uid}').textContent=s.toLocaleString()+'원'">
+                oninput="window.updRingSettle('${uid}')">
               <span class="text-slate-400 text-sm shrink-0">→</span>
-              <span id="seed_${uid}" class="text-green-400 font-mono text-sm w-20 text-right shrink-0">0원</span>
+              <span class="text-right shrink-0 w-28">
+                <span id="seed_${uid}" class="text-green-400 font-mono text-sm block">0원</span>
+                <span id="rake_${uid}" class="text-slate-500 font-mono block" style="font-size:11px"></span>
+              </span>
             </div>`;
           }).join('');
           awardSection = `<div class="card p-6">
             <h2 class="text-lg font-semibold mb-2">🎰 칩 정산 입력</h2>
             <p class="text-slate-400 text-sm mb-4">각 플레이어의 <strong class="text-white">남은 칩</strong>을 입력하세요.<br>
-              <span class="text-yellow-400">1만칩 = 1,000시드</span> (1만칩 단위 미만 절사)</p>
+              <span class="text-yellow-400">1만칩 = 1,000시드</span> (1만칩 단위 미만 절사) · <span class="text-orange-400">레이크 ${Math.round(RING_RAKE*100)}% 공제</span> 후 지급</p>
             <div class="space-y-2 mb-5">${chipRows}</div>
             <button onclick="saveRingResults('${gameId}')" class="btn-primary">정산 완료 및 시드 지급</button>
           </div>`;
@@ -1677,6 +1687,18 @@
   // ============================
   // 링게임 칩 정산
   // ============================
+  // 정산 입력 미리보기: 남은 칩 → (레이크 공제) → 실지급 시드
+  window.updRingSettle = function(uid) {
+    const chips = Math.max(0, +document.getElementById('chip_'+uid)?.value || 0);
+    const gross = Math.floor(chips/10000)*1000;
+    const net = ringChipsToSeed(chips);
+    const rake = gross - net;
+    const s = document.getElementById('seed_'+uid);
+    const r = document.getElementById('rake_'+uid);
+    if (s) s.textContent = net.toLocaleString()+'원';
+    if (r) r.textContent = gross>0 ? `환전 ${gross.toLocaleString()} · 레이크 -${rake.toLocaleString()}` : '';
+  };
+
   window.saveRingResults = function(gameId) {
     const game = (DB.get('games')||[]).find(g=>g.id===gameId);
     const entries = DB.get('entries')||[];
@@ -1688,7 +1710,7 @@
     const newAwards = [];
     participants.forEach(uid => {
       const chips = Math.max(0, +document.getElementById('chip_'+uid)?.value || 0);
-      const seeds = Math.floor(chips / 10000) * 1000;
+      const seeds = ringChipsToSeed(chips); // 레이크 공제 후 실지급 시드
       const aid = uuid();
       newAwards.push({ id:aid, gameId, userId:uid, rank:null, chips, dpiScore:0, prizeAmount:seeds, createdAt:new Date().toISOString() });
     });
